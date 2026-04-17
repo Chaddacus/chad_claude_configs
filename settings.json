@@ -177,6 +177,11 @@
         "hooks": [
           {
             "type": "command",
+            "command": "bash /Users/chadsimon/.claude/bin/omni_mem_health_probe.sh",
+            "timeout": 3
+          },
+          {
+            "type": "command",
             "command": "python3 /Users/chadsimon/.claude/bin/omni_mem_session_start.py",
             "timeout": 8
           },
@@ -192,7 +197,7 @@
   "enabledPlugins": {
     "rust-analyzer-lsp@claude-plugins-official": true,
     "second-opinion@trailofbits": true,
-    "static-analysis@trailofbits": true,
+    "static-analysis@trailofbits": false,
     "insecure-defaults@trailofbits": true,
     "sharp-edges@trailofbits": true
   },
