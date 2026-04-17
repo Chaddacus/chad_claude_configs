@@ -1,0 +1,55 @@
+{
+  "id": "r2_small_impl",
+  "route": "R2",
+  "description": "Write a Python utility with pytest tests",
+  "timeout_seconds": 120,
+  "retry_on_incomplete_terminal_state": true,
+  "workspace_template": "r2_workspace",
+  "speed_baselines_seconds": {
+    "default": 60.0,
+    "variants": {
+      "r2_v1": 58.0,
+      "r2_v2": 55.0,
+      "r2_v3": 46.0
+    }
+  },
+  "max_turns": 10,
+  "variants": [
+    {
+      "id": "r2_v1",
+      "prompt": "Create a Python module `utils/string_utils.py` with these functions:\n1. `slugify(text: str) -> str` — convert text to URL-friendly slug (lowercase, hyphens for spaces, strip non-alphanumeric)\n2. `truncate(text: str, max_len: int, suffix: str = '...') -> str` — truncate with suffix if exceeds max_len\n3. `count_words(text: str) -> int` — count whitespace-separated words\n\nThen create `tests/test_string_utils.py` with pytest tests covering normal cases and edge cases (empty string, unicode, very long strings).\n\nRun the tests and make sure they all pass.",
+      "acceptance_checks": [
+        {"type": "file_exists", "path": "utils/string_utils.py"},
+        {"type": "file_exists", "path": "tests/test_string_utils.py"},
+        {"type": "function_exists", "file": "utils/string_utils.py", "function": "slugify"},
+        {"type": "function_exists", "file": "utils/string_utils.py", "function": "truncate"},
+        {"type": "function_exists", "file": "utils/string_utils.py", "function": "count_words"},
+        {"type": "command_passes", "command": "cd {workspace} && python3 -m pytest tests/ -v", "timeout": 30}
+      ]
+    },
+    {
+      "id": "r2_v2",
+      "prompt": "Create a Python module `utils/json_validator.py` with:\n1. `validate_schema(data: dict, schema: dict) -> tuple[bool, list[str]]` — validate a dict against a simple schema (checks required keys, types). Returns (valid, list_of_errors).\n2. `merge_configs(base: dict, override: dict) -> dict` — deep merge two dicts (override wins for conflicts)\n3. `flatten_dict(d: dict, prefix: str = '') -> dict` — flatten nested dict with dot-notation keys\n\nCreate `tests/test_json_validator.py` with comprehensive pytest tests.\n\nRun tests and ensure they pass.",
+      "acceptance_checks": [
+        {"type": "file_exists", "path": "utils/json_validator.py"},
+        {"type": "file_exists", "path": "tests/test_json_validator.py"},
+        {"type": "function_exists", "file": "utils/json_validator.py", "function": "validate_schema"},
+        {"type": "function_exists", "file": "utils/json_validator.py", "function": "merge_configs"},
+        {"type": "function_exists", "file": "utils/json_validator.py", "function": "flatten_dict"},
+        {"type": "command_passes", "command": "cd {workspace} && python3 -m pytest tests/ -v", "timeout": 30}
+      ]
+    },
+    {
+      "id": "r2_v3",
+      "prompt": "Create a Python module `utils/file_utils.py` with:\n1. `safe_write(path: str, content: str) -> bool` — write to .tmp then rename (atomic write)\n2. `read_json(path: str) -> dict | None` — read JSON file, return None if missing/invalid\n3. `find_files(directory: str, pattern: str) -> list[str]` — glob-based file finder, returns sorted list of absolute paths\n\nCreate `tests/test_file_utils.py` with pytest tests (use tmp_path fixture for filesystem tests).\n\nRun tests and ensure they pass.",
+      "acceptance_checks": [
+        {"type": "file_exists", "path": "utils/file_utils.py"},
+        {"type": "file_exists", "path": "tests/test_file_utils.py"},
+        {"type": "function_exists", "file": "utils/file_utils.py", "function": "safe_write"},
+        {"type": "function_exists", "file": "utils/file_utils.py", "function": "read_json"},
+        {"type": "function_exists", "file": "utils/file_utils.py", "function": "find_files"},
+        {"type": "command_passes", "command": "cd {workspace} && python3 -m pytest tests/ -v", "timeout": 30}
+      ]
+    }
+  ]
+}

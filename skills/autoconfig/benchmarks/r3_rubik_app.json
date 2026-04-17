@@ -1,0 +1,92 @@
+{
+  "id": "r3_rubik_app",
+  "route": "R3",
+  "description": "Bounded Rubik self-solving frontend benchmark for config comparison",
+  "contract_ref": "/Users/chadsimon/.codex/skills/planning-gate/references/rubik-benchmark.md",
+  "timeout_seconds": 240,
+  "retry_on_incomplete_terminal_state": true,
+  "workspace_template": "r3_rubik_workspace",
+  "max_turns": 12,
+  "judge_profile": "implementation_review",
+  "judge_rubric": {
+    "criteria": [
+      "Requirement coverage across the bounded Rubik benchmark slice",
+      "Correctness of reachable-state scramble and solve behavior",
+      "Browser-visible interaction quality for scramble, solve, and reset",
+      "Boundedness: no material scope expansion beyond the benchmark contract"
+    ],
+    "weights": {
+      "requirement_coverage": 0.35,
+      "correctness": 0.3,
+      "interaction_quality": 0.2,
+      "boundedness": 0.15
+    },
+    "non_goals": [
+      "backend",
+      "persistence",
+      "auth",
+      "accounts",
+      "multiplayer",
+      "analytics",
+      "settings system",
+      "generalized puzzle engine",
+      "asset pipeline expansion"
+    ],
+    "solver_expectation": "Reachable scramble-state solving is required. Reverse-history or equivalent bounded solving is acceptable. A full general cube solver is not required."
+  },
+  "speed_baselines_seconds": {
+    "default": 170.0,
+    "variants": {
+      "r3_rubik_v1": 170.0,
+      "r3_rubik_v2": 165.0,
+      "r3_rubik_v3": 160.0
+    }
+  },
+  "variants": [
+    {
+      "id": "r3_rubik_v1",
+      "timeout_seconds": 210,
+      "prompt": "Complete the bounded Rubik benchmark in this workspace.\n\nRequirements:\n1. Implement an interactive 3D cube viewport in the existing React app\n2. Add deterministic scramble behavior from the solved state\n3. Implement self-solve from the current state for states reachable through the app's scramble path\n4. Animate the solve sequence and support reset back to solved state\n5. Make the provided unit tests and smoke test pass\n6. Keep the work bounded to the benchmark slice; do not add persistence, accounts, multiplayer, analytics, settings, or backend work\n\nA bounded reverse-history solver is acceptable. Do not fake solve behavior. Return a concise summary of what changed and what passed.",
+      "acceptance_checks": [
+        { "type": "file_exists", "path": "src/rubik/cubeState.ts" },
+        { "type": "file_exists", "path": "src/rubik/solver.ts" },
+        { "type": "file_exists", "path": "src/rubik/RubikScene.tsx" },
+        { "type": "file_exists", "path": "tests/rubik-state.test.ts" },
+        { "type": "file_exists", "path": "tests/rubik-smoke.spec.ts" },
+        { "type": "command_passes", "command": "cd {workspace} && npm run build", "timeout": 90 },
+        { "type": "command_passes", "command": "cd {workspace} && npm run test -- tests/rubik-state.test.ts", "timeout": 90 },
+        { "type": "command_passes", "command": "cd {workspace} && npm run smoke -- --grep \"Rubik smoke\"", "timeout": 120 }
+      ]
+    },
+    {
+      "id": "r3_rubik_v2",
+      "timeout_seconds": 210,
+      "prompt": "Finish the Rubik cube app in this workspace with emphasis on correctness and boundedness.\n\nRequirements:\n1. Keep the implementation limited to the provided frontend app scaffold\n2. Deterministically scramble the cube and solve any state reachable from that scramble path\n3. Use an honest bounded solver such as reverse-history; a full general cube solver is not required\n4. Expose visible scramble, solve, and reset controls and animate the solve path\n5. Make the provided state/solver tests and browser smoke test pass\n6. Do not add non-benchmark features such as persistence, settings, multiplayer, analytics, or generalized puzzle abstractions\n\nReturn a concise summary of what changed and what passed.",
+      "acceptance_checks": [
+        { "type": "file_exists", "path": "src/rubik/cubeState.ts" },
+        { "type": "file_exists", "path": "src/rubik/solver.ts" },
+        { "type": "file_exists", "path": "src/rubik/RubikScene.tsx" },
+        { "type": "file_exists", "path": "tests/rubik-state.test.ts" },
+        { "type": "file_exists", "path": "tests/rubik-smoke.spec.ts" },
+        { "type": "command_passes", "command": "cd {workspace} && npm run build", "timeout": 90 },
+        { "type": "command_passes", "command": "cd {workspace} && npm run test -- tests/rubik-state.test.ts", "timeout": 90 },
+        { "type": "command_passes", "command": "cd {workspace} && npm run smoke -- --grep \"Rubik smoke\"", "timeout": 120 }
+      ]
+    },
+    {
+      "id": "r3_rubik_v3",
+      "timeout_seconds": 210,
+      "prompt": "Implement the bounded Rubik benchmark in this workspace with emphasis on UI integration and test discipline.\n\nRequirements:\n1. Render the cube in a real 3D viewport and keep the app usable on desktop and mobile widths\n2. Wire deterministic scramble, self-solve, solve animation, and reset into the existing UI\n3. Ensure solve behavior is correct for states generated by the app's own scramble path\n4. Make the provided unit tests and smoke test pass without expanding product scope\n5. Keep the benchmark bounded: no backend, persistence, accounts, multiplayer, analytics, settings, or generalized cube framework work\n\nReturn a concise summary of what changed and what passed.",
+      "acceptance_checks": [
+        { "type": "file_exists", "path": "src/rubik/cubeState.ts" },
+        { "type": "file_exists", "path": "src/rubik/solver.ts" },
+        { "type": "file_exists", "path": "src/rubik/RubikScene.tsx" },
+        { "type": "file_exists", "path": "tests/rubik-state.test.ts" },
+        { "type": "file_exists", "path": "tests/rubik-smoke.spec.ts" },
+        { "type": "command_passes", "command": "cd {workspace} && npm run build", "timeout": 90 },
+        { "type": "command_passes", "command": "cd {workspace} && npm run test -- tests/rubik-state.test.ts", "timeout": 90 },
+        { "type": "command_passes", "command": "cd {workspace} && npm run smoke -- --grep \"Rubik smoke\"", "timeout": 120 }
+      ]
+    }
+  ]
+}

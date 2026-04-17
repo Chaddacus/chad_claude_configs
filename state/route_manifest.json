@@ -1,0 +1,219 @@
+{
+  "version": "route.v2",
+  "updated_at": "2026-04-16T00:00:00+00:00",
+  "coordinator": {
+    "model": "claude-opus-4-6",
+    "effort": "medium"
+  },
+  "profiles": {
+    "worker": {
+      "model": "claude-sonnet-4-6",
+      "effort": "medium"
+    },
+    "explorer": {
+      "model": "claude-haiku-4-5",
+      "effort": "low"
+    },
+    "planner": {
+      "model": "claude-opus-4-7",
+      "effort": "high"
+    },
+    "reviewer": {
+      "model": "claude-opus-4-7",
+      "effort": "high"
+    }
+  },
+  "rules": [
+    {
+      "id": "R1",
+      "name": "quick_factual",
+      "route": "coordinator",
+      "risk_class": "low",
+      "execution_shape": "single_lane",
+      "profile_overrides": {
+        "coordinator": {
+          "model": "claude-sonnet-4-6",
+          "effort": "medium"
+        }
+      }
+    },
+    {
+      "id": "R2",
+      "name": "low_risk_small_impl",
+      "route": "worker",
+      "risk_class": "medium",
+      "packetization_required": true,
+      "execution_shape": "single_lane",
+      "default_parallelism_policy": "bounded_parallel",
+      "max_parallel_packets": 2,
+      "profile_overrides": {
+        "coordinator": {
+          "model": "claude-sonnet-4-6",
+          "effort": "medium"
+        },
+        "worker": {
+          "model": "claude-sonnet-4-6",
+          "effort": "medium"
+        }
+      }
+    },
+    {
+      "id": "R3",
+      "name": "non_trivial_impl",
+      "route": "planner->worker->reviewer",
+      "risk_class": "medium",
+      "packetization_required": true,
+      "execution_shape": "single_lane",
+      "default_parallelism_policy": "bounded_parallel",
+      "route_swarm_cap": 4,
+      "lane_caps": {
+        "planner": 1,
+        "explorer": 2,
+        "worker": 2,
+        "validator": 2,
+        "reviewer": 1
+      },
+      "frontier_dispatch_order": [
+        "validator",
+        "explorer",
+        "worker",
+        "reviewer"
+      ],
+      "reviewer_barrier_points": [
+        "closure",
+        "high_risk_boundary_shrink"
+      ],
+      "convergence_required_for_closure": true,
+      "profile_overrides": {
+        "planner": {
+          "model": "claude-opus-4-7",
+          "effort": "high"
+        },
+        "worker": {
+          "model": "claude-sonnet-4-6",
+          "effort": "medium"
+        },
+        "explorer": {
+          "model": "claude-haiku-4-5",
+          "effort": "low"
+        },
+        "validator": {
+          "model": "claude-haiku-4-5",
+          "effort": "medium"
+        },
+        "reviewer": {
+          "model": "claude-opus-4-7",
+          "effort": "high"
+        }
+      }
+    },
+    {
+      "id": "R4",
+      "name": "high_risk_impl",
+      "route": "coordinator+reviewer",
+      "risk_class": "high",
+      "packetization_required": true,
+      "execution_shape": "bounded_swarm",
+      "default_parallelism_policy": "bounded_parallel",
+      "route_swarm_cap": 2,
+      "lane_caps": {
+        "planner": 1,
+        "explorer": 1,
+        "worker": 1,
+        "validator": 1,
+        "reviewer": 1
+      },
+      "frontier_dispatch_order": [
+        "validator",
+        "explorer",
+        "worker",
+        "reviewer"
+      ],
+      "reviewer_barrier_points": [
+        "closure",
+        "high_risk_boundary_shrink",
+        "adaptation_generated_packets"
+      ],
+      "convergence_required_for_closure": true,
+      "profile_overrides": {
+        "coordinator": {
+          "model": "claude-opus-4-6",
+          "effort": "medium"
+        },
+        "worker": {
+          "model": "claude-sonnet-4-6",
+          "effort": "medium"
+        },
+        "explorer": {
+          "model": "claude-haiku-4-5",
+          "effort": "low"
+        },
+        "validator": {
+          "model": "claude-haiku-4-5",
+          "effort": "medium"
+        },
+        "reviewer": {
+          "model": "claude-opus-4-7",
+          "effort": "high"
+        }
+      }
+    },
+    {
+      "id": "R5",
+      "name": "ambiguous",
+      "route": "coordinator",
+      "risk_class": "unknown",
+      "execution_shape": "single_lane"
+    }
+  ],
+  "thresholds": {
+    "high_risk_false_negatives": 0,
+    "rule_match_accuracy_min": 0.95,
+    "fallback_rate_max": 0.1,
+    "audit_coverage": 1,
+    "observed_model_family_accuracy_min": 0.95
+  },
+  "tooling": {
+    "extractor": "/Users/chadsimon/.claude/bin/route_audit_extract.sh",
+    "validator": "/Users/chadsimon/.claude/bin/route_validate_audit.sh",
+    "rollback": "/Users/chadsimon/.claude/bin/route_rollback.sh"
+  },
+  "postflight": {
+    "enabled": true,
+    "mode": "enforce",
+    "routes": [
+      "R3",
+      "R4"
+    ],
+    "max_loops": 3,
+    "gate_chain": [
+      "validate_plan",
+      "validate_impl",
+      "planning_gate_finalize",
+      "program_close_gate"
+    ],
+    "require_program_close": true,
+    "program_close_command": [
+      "npm",
+      "run",
+      "release-close-gate",
+      "--",
+      "--track-id",
+      "{track_id}"
+    ],
+    "program_close_report": "planning_artifacts/{track_id}/release/program-scoreboard.json",
+    "invoker": "claude_run",
+    "auto_continue_exec": true,
+    "exec_only": true,
+    "lock_dir": "/Users/chadsimon/.claude/state/locks",
+    "on_gate_failure": "revise_then_retry",
+    "on_budget_exhausted": "block_with_report",
+    "telemetry": {
+      "enabled": true,
+      "tag": "ralph-meta",
+      "version": 1
+    },
+    "canonical_runtime_home": "/Users/chadsimon/.claude"
+  },
+  "control_plane_ref": "state/control_plane.json"
+}

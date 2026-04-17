@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "planning-gate/execution-plan.v1.json",
+  "title": "Planning Gate Execution Plan v1",
+  "description": "Internal, compiled, canonical execution IR for the planning-gate kernel. This payload is generated from plan.v1, is not user-authored, and is authoritative for execution semantics. The kernel executes only execution-plan.v1.",
+  "$comment": "execution-plan.v1 is the permanent internal execution IR. If plan.v1 cannot compile into a fully kernel-valid execution-plan.v1 payload, execution must not start.",
+  "type": "object",
+  "required": ["schema_version", "objective_id", "track_id", "units"],
+  "properties": {
+    "schema_version": { "const": "execution-plan.v1" },
+    "objective_id": { "type": "string", "minLength": 1 },
+    "track_id": { "type": "string", "minLength": 1 },
+    "units": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "unit_id",
+          "unit_type",
+          "priority",
+          "required",
+          "candidate_files",
+          "allowed_scope",
+          "dependencies",
+          "max_retries",
+          "mutation_budget",
+          "verification_scope",
+          "acceptance_checks",
+          "failure_signals",
+          "escalation_on_failure",
+          "completion_test"
+        ],
+        "properties": {
+          "unit_id": { "type": "string", "minLength": 1 },
+          "unit_type": { "type": "string", "minLength": 1 },
+          "priority": { "type": "string", "enum": ["high", "medium", "normal", "low"] },
+          "required": { "type": "boolean" },
+          "candidate_files": { "type": "array", "items": { "type": "string" } },
+          "allowed_scope": { "type": "array", "items": { "type": "string" } },
+          "dependencies": { "type": "array", "items": { "type": "string" } },
+          "max_retries": { "type": "integer", "minimum": 0 },
+          "mutation_budget": {
+            "type": "object",
+            "required": ["max_files", "max_attempts"],
+            "properties": {
+              "max_files": { "type": "integer", "minimum": 0 },
+              "max_attempts": { "type": "integer", "minimum": 0 }
+            }
+          },
+          "verification_scope": { "type": "string", "enum": ["local", "targeted", "broad", "environment"] },
+          "acceptance_checks": { "type": "array", "items": { "type": "string" } },
+          "failure_signals": { "type": "array", "items": { "type": "string" } },
+          "escalation_on_failure": { "type": "string", "minLength": 1 },
+          "completion_test": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,58 @@
+{
+  "id": "r3_feature",
+  "route": "R3",
+  "description": "Small Express feature tasks for route-behavior evaluation",
+  "timeout_seconds": 180,
+  "retry_on_incomplete_terminal_state": true,
+  "workspace_template": "r3_workspace",
+  "max_turns": 10,
+  "judge_profile": "implementation_review",
+  "judge_rubric": {
+    "criteria": [
+      "Requirement coverage across all numbered prompt requirements",
+      "Implementation correctness beyond test-only artifacts",
+      "Test adequacy and regression resistance",
+      "Code-change appropriateness and avoidance of unnecessary edits"
+    ],
+    "weights": {
+      "requirement_coverage": 0.4,
+      "correctness": 0.3,
+      "test_adequacy": 0.2,
+      "change_quality": 0.1
+    }
+  },
+  "variants": [
+    {
+      "id": "r3_v1",
+      "timeout_seconds": 150,
+      "prompt": "Wire the existing users router into the Express app.\n\nRequirements:\n1. Register the router from `src/routes/users.ts` in `src/app.ts` at `/users`\n2. Add `tests/users-route.test.ts` that verifies GET `/users` returns `[]` and POST `/users` returns `201` with the created user\n3. Run `npm run test -- tests/users-route.test.ts` and make sure it passes\n\nKeep the change focused. Return a concise summary of what you changed and what passed.",
+      "acceptance_checks": [
+        {"type": "file_contains", "path": "src/app.ts", "value": "/users"},
+        {"type": "file_exists", "path": "tests/users-route.test.ts"},
+        {"type": "command_passes", "command": "cd {workspace} && npm run test -- tests/users-route.test.ts", "timeout": 45}
+      ]
+    },
+    {
+      "id": "r3_v2",
+      "workspace_template": "r3_workspace_mounted_users",
+      "timeout_seconds": 150,
+      "prompt": "Add lightweight validation to POST `/users`.\n\nThe users router is already mounted at `/users`; do not change app wiring. Keep the task limited to validation behavior and tests.\n\nRequirements:\n1. Update `src/routes/users.ts` so POST `/users` returns `400` with JSON `{\"error\": \"name and email are required\"}` when `name` or `email` is missing\n2. Add `tests/users-validation.test.ts` covering both the failure case and a valid create\n3. Run `npm run test -- tests/users-validation.test.ts` and make sure it passes\n\nKeep the change focused. Return a concise summary of what you changed and what passed.",
+      "acceptance_checks": [
+        {"type": "file_contains", "path": "src/routes/users.ts", "value": "name and email are required"},
+        {"type": "file_exists", "path": "tests/users-validation.test.ts"},
+        {"type": "command_passes", "command": "cd {workspace} && npm run test -- tests/users-validation.test.ts", "timeout": 45}
+      ]
+    },
+    {
+      "id": "r3_v3",
+      "workspace_template": "r3_workspace_mounted_users",
+      "timeout_seconds": 150,
+      "prompt": "Add a small users metrics endpoint.\n\nRequirements:\n1. Update `src/routes/users.ts` to add GET `/users/count` that returns JSON `{\"count\": <number>}`\n2. Add `tests/users-count.test.ts` that creates two users and verifies the count endpoint returns `2`\n3. Run `npm run test -- tests/users-count.test.ts` and make sure it passes\n\nKeep the change focused. Return a concise summary of what you changed and what passed.",
+      "acceptance_checks": [
+        {"type": "file_contains", "path": "src/routes/users.ts", "value": "/count"},
+        {"type": "file_exists", "path": "tests/users-count.test.ts"},
+        {"type": "command_passes", "command": "cd {workspace} && npm run test -- tests/users-count.test.ts", "timeout": 45}
+      ]
+    }
+  ]
+}

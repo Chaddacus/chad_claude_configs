@@ -1,0 +1,558 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+CLAUDE_HOME_DIR="${CLAUDE_HOME:-$HOME/.claude}"
+REQUIRED_RUNTIME_VERSION="claude-owned-runtime.v1"
+SCRIPT_SELF="${BASH_SOURCE[0]}"
+
+finalize_attempt=false
+verify_runtime_only=false
+route_task_id=""
+route_class=""
+track_id=""
+plan_json=""
+impl_json=""
+review_json=""
+workspace_root="$PWD"
+claude_home="$CLAUDE_HOME_DIR"
+max_loops=""
+artifacts_root=""
+mode=""
+timeout_sec=""
+
+usage() {
+  cat <<'USAGE'
+Usage:
+  claude_run [runtime or postflight options] -- [claude arguments]
+
+Runtime options:
+  --verify-runtime
+  --claude-home <path>
+
+Postflight options:
+  --finalize-attempt
+  --route-task-id <id>
+  --route-class <R3|R4>
+  --track-id <id>
+  --plan-json <path>
+  --impl-json <path>
+  --review-json <path>
+  --workspace-root <path>
+  --max-loops <n>
+  --timeout-sec <n>
+  --postflight-mode <enforce|audit>
+  --artifacts-root <path>
+USAGE
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --help|-h)
+      usage
+      exit 0
+      ;;
+    --verify-runtime)
+      verify_runtime_only=true
+      shift
+      ;;
+    --finalize-attempt)
+      finalize_attempt=true
+      shift
+      ;;
+    --route-task-id)
+      route_task_id="${2:-}"
+      shift 2
+      ;;
+    --route-class)
+      route_class="${2:-}"
+      shift 2
+      ;;
+    --track-id)
+      track_id="${2:-}"
+      shift 2
+      ;;
+    --plan-json)
+      plan_json="${2:-}"
+      shift 2
+      ;;
+    --impl-json)
+      impl_json="${2:-}"
+      shift 2
+      ;;
+    --review-json)
+      review_json="${2:-}"
+      shift 2
+      ;;
+    --workspace-root)
+      workspace_root="${2:-}"
+      shift 2
+      ;;
+    --claude-home)
+      claude_home="${2:-}"
+      shift 2
+      ;;
+    --max-loops)
+      max_loops="${2:-}"
+      shift 2
+      ;;
+    --timeout-sec)
+      timeout_sec="${2:-}"
+      shift 2
+      ;;
+    --postflight-mode)
+      mode="${2:-}"
+      shift 2
+      ;;
+    --artifacts-root)
+      artifacts_root="${2:-}"
+      shift 2
+      ;;
+    --)
+      shift
+      break
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
+
+claude_args=("$@")
+MANIFEST_FILE="$claude_home/state/route_manifest.json"
+POSTFLIGHT_SCRIPT="$claude_home/bin/ralph_done_loop.py"
+
+resolve_abs() {
+  python3 - "$1" <<'PY'
+import sys
+from pathlib import Path
+print(str(Path(sys.argv[1]).expanduser().resolve()))
+PY
+}
+
+resolve_mode() {
+  if [[ -n "$mode" ]]; then
+    printf '%s' "$mode"
+    return
+  fi
+  if [[ -f "$MANIFEST_FILE" ]]; then
+    python3 - "$MANIFEST_FILE" <<'PY'
+import json
+import sys
+from pathlib import Path
+path = Path(sys.argv[1])
+try:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+except Exception:
+    print("enforce")
+    raise SystemExit(0)
+postflight = payload.get("postflight") if isinstance(payload.get("postflight"), dict) else {}
+mode = str(postflight.get("mode") or "enforce").strip().lower()
+print(mode if mode in {"enforce", "audit"} else "enforce")
+PY
+  else
+    printf 'enforce'
+  fi
+}
+
+resolve_real_bin() {
+  if [[ -n "${CLAUDE_REAL_BIN:-}" && -x "${CLAUDE_REAL_BIN}" ]]; then
+    printf '%s' "${CLAUDE_REAL_BIN}"
+    return 0
+  fi
+  if command -v claude.real >/dev/null 2>&1; then
+    command -v claude.real
+    return 0
+  fi
+  if [[ -x "/Users/chadsimon/.local/bin/claude" ]]; then
+    printf '%s' "/Users/chadsimon/.local/bin/claude"
+    return 0
+  fi
+  if command -v claude >/dev/null 2>&1; then
+    command -v claude
+    return 0
+  fi
+  return 1
+}
+
+resolve_max_loops() {
+  if [[ -n "$max_loops" ]]; then
+    printf '%s' "$max_loops"
+    return
+  fi
+  if [[ -f "$MANIFEST_FILE" ]]; then
+    python3 - "$MANIFEST_FILE" <<'PY'
+import json
+import sys
+from pathlib import Path
+path = Path(sys.argv[1])
+try:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+except Exception:
+    print("3")
+    raise SystemExit(0)
+postflight = payload.get("postflight") if isinstance(payload.get("postflight"), dict) else {}
+value = postflight.get("max_loops", 3)
+try:
+    parsed = int(value)
+except Exception:
+    parsed = 3
+print(str(parsed if parsed > 0 else 3))
+PY
+  else
+    printf '3'
+  fi
+}
+
+validate_runtime_payload() {
+  python3 - "$claude_home" "$REQUIRED_RUNTIME_VERSION" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+home = Path(sys.argv[1]).expanduser().resolve()
+required_version = sys.argv[2]
+payload = {
+    "schema_version": "claude_runtime_verify.v2",
+    "ok": False,
+    "status": "error",
+    "reason_code": "INVALID_CLAUDE_RUNTIME",
+    "reason": "",
+    "required_runtime_version": required_version,
+    "runtime_home": str(home),
+    "runtime_paths": {},
+    "errors": [],
+}
+errors: list[str] = []
+required_files = [
+    "CLAUDE.md",
+    "settings.json",
+    "state/route_manifest.json",
+    "bin/claude_run",
+    "bin/notify_done.sh",
+    "bin/postflight_acceptance_check.py",
+    "bin/ralph_done_loop.py",
+]
+
+for rel_path in required_files:
+    if not (home / rel_path).exists():
+        errors.append(f"missing:{rel_path}")
+
+route_manifest_path = home / "state" / "route_manifest.json"
+if not route_manifest_path.exists():
+    errors.append("missing:state/route_manifest.json")
+else:
+    try:
+        route_manifest = json.loads(route_manifest_path.read_text(encoding="utf-8"))
+        if not isinstance(route_manifest.get("postflight"), dict):
+            errors.append("missing_postflight_policy")
+    except Exception as exc:
+        errors.append(f"invalid_route_manifest:{exc}")
+settings_path = home / "settings.json"
+if not settings_path.exists():
+    errors.append("missing:settings.json")
+else:
+    try:
+        settings = json.loads(settings_path.read_text(encoding="utf-8"))
+        env = settings.get("env") if isinstance(settings.get("env"), dict) else {}
+        hooks = settings.get("hooks") if isinstance(settings.get("hooks"), dict) else {}
+        mcp_servers = settings.get("mcpServers") if isinstance(settings.get("mcpServers"), dict) else {}
+        enabled_plugins = settings.get("enabledPlugins") if isinstance(settings.get("enabledPlugins"), dict) else {}
+        permissions = settings.get("permissions") if isinstance(settings.get("permissions"), dict) else {}
+        allow_rules = permissions.get("allow") if isinstance(permissions.get("allow"), list) else []
+        deny_rules = permissions.get("deny") if isinstance(permissions.get("deny"), list) else []
+        if str(env.get("CLAUDE_HOME") or "") != str(home):
+            errors.append("claude_home_env_mismatch")
+        if "CODEX_HOME" in env:
+            errors.append("codex_home_export_present")
+        for hook_name in (
+            "SessionStart",
+            "UserPromptSubmit",
+            "PreToolUse",
+            "PostToolUse",
+            "PostToolUseFailure",
+            "TaskCompleted",
+            "SubagentStop",
+            "Stop",
+        ):
+            if hook_name not in hooks:
+                errors.append(f"missing_hook:{hook_name}")
+        for server_name in ("cloudwarriors", "openaiDeveloperDocs", "claude-mem"):
+            if server_name not in mcp_servers:
+                errors.append(f"missing_mcp_server:{server_name}")
+        for plugin_name in ("claude-mem@thedotmack", "codex@openai-codex"):
+            if enabled_plugins.get(plugin_name) is not True:
+                errors.append(f"plugin_disabled:{plugin_name}")
+        for rule in ("Bash(*)", "Read", "Write", "Edit", "Task", "Agent", "mcp__*"):
+            if rule not in allow_rules:
+                errors.append(f"missing_allow_rule:{rule}")
+        for rule in (
+            "Bash(rm -rf *)",
+            "Bash(git push --force*)",
+            "Bash(git reset --hard*)",
+        ):
+            if rule not in deny_rules:
+                errors.append(f"missing_deny_rule:{rule}")
+    except Exception as exc:
+        errors.append(f"invalid_settings:{exc}")
+
+runtime_paths = {}
+planning_gate_dir = home / "skills" / "planning-gate"
+if planning_gate_dir.is_dir():
+    runtime_paths["planning_gate_skill_dir"] = "skills/planning-gate"
+
+payload["runtime_paths"] = runtime_paths
+payload["errors"] = errors
+payload["ok"] = not errors
+payload["status"] = "ok" if payload["ok"] else "error"
+payload["reason_code"] = "OK" if payload["ok"] else "CLAUDE_RUNTIME_INVALID"
+payload["reason"] = (
+    "Claude canonical runtime verified."
+    if payload["ok"]
+    else "Claude canonical runtime is missing or misconfigured."
+)
+print(json.dumps(payload, sort_keys=True))
+raise SystemExit(0 if payload["ok"] else 1)
+PY
+}
+
+validate_runtime_or_exit() {
+  local payload
+  set +e
+  payload="$(validate_runtime_payload)"
+  local rc=$?
+  set -e
+  if [[ "$verify_runtime_only" == true ]]; then
+    printf '%s\n' "$payload"
+    exit "$rc"
+  fi
+  if [[ "$rc" -ne 0 ]]; then
+    printf '%s\n' "$payload" >&2
+    exit 30
+  fi
+}
+
+run_real_passthrough() {
+  set +e
+  if [[ "${#claude_args[@]}" -gt 0 ]]; then
+    "$real_bin" "${claude_args[@]}"
+  else
+    "$real_bin"
+  fi
+  local rc=$?
+  set -e
+  return "$rc"
+}
+
+run_postflight_once() {
+  local loop_idx="$1"
+  local loop_budget="$2"
+  postflight_tmp_file="$(mktemp /tmp/claude-postflight.XXXXXX)"
+  local cmd=(
+    "python3" "$POSTFLIGHT_SCRIPT"
+    "--route-task-id" "$route_task_id"
+    "--route-class" "$route_class"
+    "--plan-json" "$plan_json"
+    "--impl-json" "$impl_json"
+    "--review-json" "$review_json"
+    "--workspace-root" "$workspace_root"
+    "--codex-home" "$claude_home"
+    "--mode" "$mode"
+    "--artifacts-root" "$artifacts_root"
+    "--max-loops" "$loop_budget"
+    "--external-remediation-loop"
+    "--loop-index" "$loop_idx"
+  )
+  if [[ -n "$timeout_sec" ]]; then
+    cmd+=("--timeout-sec" "$timeout_sec")
+  fi
+  if [[ -n "$track_id" ]]; then
+    cmd+=("--track-id" "$track_id")
+  fi
+  set +e
+  "${cmd[@]}" | tee "$postflight_tmp_file"
+  postflight_rc=$?
+  set -e
+}
+
+extract_postflight_field() {
+  local payload_file="$1"
+  local field_name="$2"
+  python3 - "$payload_file" "$field_name" <<'PY'
+import json
+import sys
+from pathlib import Path
+payload = {}
+try:
+    lines = Path(sys.argv[1]).read_text(encoding="utf-8").strip().splitlines()
+    for line in reversed(lines):
+        try:
+            parsed = json.loads(line)
+        except Exception:
+            continue
+        if isinstance(parsed, dict):
+            payload = parsed
+            break
+except Exception:
+    payload = {}
+value = payload.get(sys.argv[2], "")
+if value is None:
+    value = ""
+print(str(value))
+PY
+}
+
+build_next_prompt() {
+  local base_prompt="$1"
+  local payload_file="$2"
+  local loop_idx="$3"
+  python3 - "$base_prompt" "$payload_file" "$loop_idx" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+base = sys.argv[1]
+payload_path = Path(sys.argv[2])
+loop_idx = sys.argv[3]
+payload = {}
+try:
+    lines = payload_path.read_text(encoding="utf-8").strip().splitlines()
+    for line in reversed(lines):
+        try:
+            parsed = json.loads(line)
+        except Exception:
+            continue
+        if isinstance(parsed, dict):
+            payload = parsed
+            break
+except Exception:
+    payload = {}
+
+next_action = str(payload.get("next_action_prompt") or "").strip()
+if not next_action:
+    missing = payload.get("missing_fields") if isinstance(payload.get("missing_fields"), list) else []
+    blocked = payload.get("blocked_fields") if isinstance(payload.get("blocked_fields"), list) else []
+    next_action = "Address remaining DoD gaps and re-run finalization."
+    if missing:
+        next_action += "\nMissing: " + ", ".join(str(x) for x in missing[:20])
+    if blocked:
+        next_action += "\nBlocked: " + ", ".join(str(x) for x in blocked[:20])
+if len(next_action) > 4000:
+    next_action = next_action[:4000]
+block = f"[Ralph Remediation Loop {loop_idx}]\n{next_action}"
+print(base + "\n\n" + block)
+PY
+}
+
+claude_home="$(resolve_abs "$claude_home")"
+MANIFEST_FILE="$claude_home/state/route_manifest.json"
+POSTFLIGHT_SCRIPT="$claude_home/bin/ralph_done_loop.py"
+
+if ! real_bin="$(resolve_real_bin)"; then
+  echo '{"schema_version":"postflight_result.v1","ok":false,"status":"error","reason_code":"REAL_BIN_NOT_FOUND","reason":"Unable to resolve real Claude binary","exit_code":30}' >&2
+  exit 30
+fi
+
+real_bin_abs="$(resolve_abs "$real_bin")"
+script_self_abs="$(resolve_abs "$SCRIPT_SELF")"
+if [[ "$real_bin_abs" == "$script_self_abs" ]]; then
+  echo '{"schema_version":"postflight_result.v1","ok":false,"status":"error","reason_code":"REAL_BIN_RECURSION","reason":"Resolved real binary points to claude_run wrapper","exit_code":30}' >&2
+  exit 30
+fi
+
+validate_runtime_or_exit
+
+planning_gate_skill_dir="skills/planning-gate"
+if [[ -d "$claude_home/$planning_gate_skill_dir" ]]; then
+  export PLANNING_GATE_SKILL_DIR="$claude_home/$planning_gate_skill_dir"
+fi
+export CLAUDE_HOME="$claude_home"
+
+if [[ "$finalize_attempt" != true ]]; then
+  if run_real_passthrough; then
+    passthrough_rc=0
+  else
+    passthrough_rc=$?
+  fi
+  exit "$passthrough_rc"
+fi
+
+if [[ "$route_class" != "R3" && "$route_class" != "R4" ]]; then
+  if run_real_passthrough; then
+    passthrough_rc=0
+  else
+    passthrough_rc=$?
+  fi
+  exit "$passthrough_rc"
+fi
+
+if [[ -z "$route_task_id" || -z "$plan_json" || -z "$impl_json" || -z "$review_json" || -z "$workspace_root" || -z "$claude_home" ]]; then
+  echo '{"schema_version":"postflight_result.v1","ok":false,"status":"error","reason_code":"MISSING_REQUIRED_INPUTS","reason":"Missing required postflight inputs","exit_code":30}' >&2
+  exit 30
+fi
+
+mode="$(resolve_mode)"
+loop_budget="$(resolve_max_loops)"
+if [[ -z "$artifacts_root" ]]; then
+  artifacts_root="$workspace_root/planning_artifacts"
+fi
+
+if [[ "${#claude_args[@]}" -lt 1 || "${claude_args[0]}" != "exec" ]]; then
+  echo '{"schema_version":"postflight_result.v1","ok":false,"status":"error","reason_code":"UNSUPPORTED_EXEC_MODE_FOR_AUTOCONTINUE","reason":"R3/R4 finalize auto-continue only supports claude exec flows","exit_code":30}' >&2
+  exit 30
+fi
+
+base_prompt=""
+if [[ "${#claude_args[@]}" -ne 2 ]]; then
+  echo '{"schema_version":"postflight_result.v1","ok":false,"status":"error","reason_code":"UNSUPPORTED_EXEC_PROMPT_SHAPE","reason":"Supported shapes are: claude exec \"<prompt>\" or claude exec -","exit_code":30}' >&2
+  exit 30
+fi
+
+if [[ "${claude_args[1]}" == "-" ]]; then
+  if [[ -t 0 ]]; then
+    echo '{"schema_version":"postflight_result.v1","ok":false,"status":"error","reason_code":"MISSING_STDIN_PROMPT","reason":"claude exec - requires stdin prompt content","exit_code":30}' >&2
+    exit 30
+  fi
+  base_prompt="$(cat)"
+else
+  base_prompt="${claude_args[1]}"
+fi
+
+current_prompt="$base_prompt"
+for ((i=1; i<=loop_budget; i++)); do
+  set +e
+  "$real_bin" "exec" "$current_prompt"
+  real_rc=$?
+  set -e
+  if [[ "$real_rc" -ne 0 ]]; then
+    exit "$real_rc"
+  fi
+
+  run_postflight_once "$i" "$loop_budget"
+
+  if [[ "$postflight_rc" -eq 30 ]]; then
+    reason_code="$(extract_postflight_field "$postflight_tmp_file" "reason_code")"
+    if [[ "$reason_code" == "TIMEOUT" || "$reason_code" == "TEMPORARY_IO" || "$reason_code" == "SPAWN_EAGAIN" ]]; then
+      run_postflight_once "$i" "$loop_budget"
+    fi
+  fi
+
+  postflight_status="$(extract_postflight_field "$postflight_tmp_file" "status")"
+  if [[ "$postflight_status" == "approve" && "$postflight_rc" -eq 0 ]]; then
+    exit 0
+  fi
+  if [[ "$postflight_status" == "revise" && "$postflight_rc" -eq 10 ]]; then
+    current_prompt="$(build_next_prompt "$base_prompt" "$postflight_tmp_file" "$i")"
+    continue
+  fi
+  if [[ "$postflight_status" == "blocked" || "$postflight_rc" -eq 20 ]]; then
+    exit 20
+  fi
+  if [[ "$postflight_status" == "error" || "$postflight_rc" -eq 30 ]]; then
+    exit 30
+  fi
+  echo '{"schema_version":"postflight_result.v1","ok":false,"status":"error","reason_code":"UNEXPECTED_POSTFLIGHT_STATUS","reason":"Unexpected postflight status during auto-continue loop","exit_code":30}' >&2
+  exit 30
+done
+
+echo '{"schema_version":"postflight_result.v1","ok":false,"status":"blocked","reason_code":"BUDGET_EXHAUSTED","reason":"Loop budget exhausted without approval","exit_code":20}' >&2
+exit 20

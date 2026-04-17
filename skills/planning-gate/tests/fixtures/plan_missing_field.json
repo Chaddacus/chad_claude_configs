@@ -1,0 +1,16 @@
+{
+  "schema_version": "plan.v1",
+  "scope_boundaries": {"in_scope": [], "out_of_scope": []},
+  "implementation_plan": [],
+  "dependencies": [],
+  "tests": {
+    "unit": [],
+    "regression": [],
+    "integration": [],
+    "smoke_gates": []
+  },
+  "logging_plan": [],
+  "rollback_plan": [],
+  "risks": [],
+  "approval_gate": {}
+}

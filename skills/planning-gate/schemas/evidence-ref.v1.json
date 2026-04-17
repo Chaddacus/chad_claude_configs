@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "planning-gate/evidence-ref.v1.json",
+  "title": "Planning Gate Evidence Ref v1",
+  "type": "object",
+  "required": ["schema_version", "evidence_id", "kind", "path", "producer", "step_id"],
+  "properties": {
+    "schema_version": { "const": "evidence-ref.v1" },
+    "evidence_id": { "type": "string", "minLength": 1 },
+    "kind": {
+      "type": "string",
+      "enum": ["command_output", "json_artifact", "log_ref", "policy_violation", "diff_snapshot", "runtime_artifact"]
+    },
+    "path": { "type": "string", "minLength": 1 },
+    "producer": { "type": "string", "minLength": 1 },
+    "step_id": { "type": "string", "minLength": 1 }
+  }
+}

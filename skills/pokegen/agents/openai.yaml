@@ -1,0 +1,4 @@
+interface:
+  display_name: "Pokemon Generator"
+  short_description: "Research optimal Pokemon builds and generate legal .pk9 files"
+  default_prompt: "Generate Pokemon for a 7-star tera raid"

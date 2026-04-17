@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "planning-gate/runtime-state.v1.json",
+  "title": "Planning Gate Kernel Runtime State v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "objective_id",
+    "track_id",
+    "state",
+    "active_unit_id",
+    "active_unit_ids",
+    "completed_units",
+    "failed_attempts",
+    "last_action",
+    "last_verification_id",
+    "evidence_refs",
+    "budget",
+    "halt",
+    "transition_history"
+  ],
+  "properties": {
+    "schema_version": { "const": "runtime-state.v1" },
+    "objective_id": { "type": "string", "minLength": 1 },
+    "track_id": { "type": "string", "minLength": 1 },
+    "state": {
+      "type": "string",
+      "enum": [
+        "bootstrapped",
+        "planning_complete",
+        "ready",
+        "acting",
+        "verifying",
+        "repair_pending",
+        "blocked",
+        "finalize_pending",
+        "success",
+        "partial",
+        "closed_blocked",
+        "unsafe"
+      ]
+    },
+    "active_unit_id": { "type": ["string", "null"] },
+    "active_unit_ids": { "type": "array", "items": { "type": "string" } },
+    "completed_units": { "type": "array", "items": { "type": "string" } },
+    "failed_attempts": { "type": "array", "items": { "type": "object" } },
+    "last_action": { "type": ["object", "null"] },
+    "last_verification_id": { "type": ["string", "null"] },
+    "evidence_refs": { "type": "array", "items": { "type": "object" } },
+    "budget": {
+      "type": "object",
+      "required": ["remaining_steps", "remaining_mutations", "remaining_retries"],
+      "properties": {
+        "remaining_steps": { "type": "integer", "minimum": 0 },
+        "remaining_mutations": { "type": "integer", "minimum": 0 },
+        "remaining_retries": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "halt": {
+      "type": "object",
+      "required": ["terminal", "reason"],
+      "properties": {
+        "terminal": { "type": "boolean" },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "none",
+            "accepted_success",
+            "accepted_partial",
+            "accepted_blocked",
+            "needs_human_decision",
+            "unsafe_to_continue",
+            "no_safe_momentum",
+            "invalid_transition"
+          ]
+        }
+      }
+    },
+    "transition_history": { "type": "array", "items": { "type": "object" } }
+  }
+}

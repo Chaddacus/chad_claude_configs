@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.chadsimon.autoconfig</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/python3</string>
+        <string>/Users/chadsimon/.claude/skills/autoconfig/scripts/experiment_daemon.py</string>
+    </array>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>Nice</key>
+    <integer>10</integer>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+
+    <key>ThrottleInterval</key>
+    <integer>60</integer>
+
+    <key>StandardOutPath</key>
+    <string>/Users/chadsimon/.claude/state/autoconfig/daemon-stdout.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/chadsimon/.claude/state/autoconfig/daemon-stderr.log</string>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/chadsimon/.claude/skills/autoconfig/scripts</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>CLAUDE_HOME</key>
+        <string>/Users/chadsimon/.claude</string>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+</dict>
+</plist>

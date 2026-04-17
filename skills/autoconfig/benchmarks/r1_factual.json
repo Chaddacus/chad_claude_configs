@@ -1,0 +1,178 @@
+{
+  "id": "r1_factual",
+  "route": "R1",
+  "description": "Quick factual question about runtime config",
+  "timeout_seconds": 30,
+  "workspace_template": null,
+  "max_turns": 8,
+  "variants": [
+    {
+      "id": "r1_v1",
+      "prompt": "Using only the local runtime files, return valid JSON of the form {\"roles\": [{\"name\": \"...\", \"sandbox\": \"read-only|workspace-write\"}]} listing the five governed agent roles and their sandbox permissions. No prose.",
+      "truth_extractor": {
+        "type": "agent_roles"
+      },
+      "output_schema": {
+        "type": "object",
+        "required": ["roles"],
+        "properties": {
+          "roles": {
+            "type": "array",
+            "minItems": 5,
+            "maxItems": 5,
+            "items": {
+              "type": "object",
+              "required": ["name", "sandbox"],
+              "properties": {
+                "name": {"type": "string", "minLength": 1},
+                "sandbox": {
+                  "type": "string",
+                  "enum": ["read-only", "workspace-write"]
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "acceptance_checks": [
+        {"type": "output_json_schema"},
+        {"type": "truth_match"}
+      ]
+    },
+    {
+      "id": "r1_v2",
+      "prompt": "Using only the local route manifest, return valid JSON with exactly two keys, R3 and R4. For each route return {\"execution_shape\": string, \"route_swarm_cap\": integer, \"lane_caps\": object, \"reviewer_barrier_points\": string array, \"convergence_required_for_closure\": boolean}. No prose.",
+      "truth_extractor": {
+        "type": "route_pair_summary",
+        "route_ids": ["R3", "R4"],
+        "fields": [
+          "execution_shape",
+          "route_swarm_cap",
+          "lane_caps",
+          "reviewer_barrier_points",
+          "convergence_required_for_closure"
+        ]
+      },
+      "output_schema": {
+        "type": "object",
+        "required": ["R3", "R4"],
+        "properties": {
+          "R3": {
+            "type": "object",
+            "required": [
+              "execution_shape",
+              "route_swarm_cap",
+              "lane_caps",
+              "reviewer_barrier_points",
+              "convergence_required_for_closure"
+            ],
+            "properties": {
+              "execution_shape": {"type": "string"},
+              "route_swarm_cap": {"type": "integer"},
+              "lane_caps": {
+                "type": "object",
+                "required": ["planner", "explorer", "worker", "validator", "reviewer"],
+                "properties": {
+                  "planner": {"type": "integer"},
+                  "explorer": {"type": "integer"},
+                  "worker": {"type": "integer"},
+                  "validator": {"type": "integer"},
+                  "reviewer": {"type": "integer"}
+                },
+                "additionalProperties": false
+              },
+              "reviewer_barrier_points": {
+                "type": "array",
+                "minItems": 1,
+                "items": {"type": "string", "minLength": 1}
+              },
+              "convergence_required_for_closure": {"type": "boolean"}
+            },
+            "additionalProperties": false
+          },
+          "R4": {
+            "type": "object",
+            "required": [
+              "execution_shape",
+              "route_swarm_cap",
+              "lane_caps",
+              "reviewer_barrier_points",
+              "convergence_required_for_closure"
+            ],
+            "properties": {
+              "execution_shape": {"type": "string"},
+              "route_swarm_cap": {"type": "integer"},
+              "lane_caps": {
+                "type": "object",
+                "required": ["planner", "explorer", "worker", "validator", "reviewer"],
+                "properties": {
+                  "planner": {"type": "integer"},
+                  "explorer": {"type": "integer"},
+                  "worker": {"type": "integer"},
+                  "validator": {"type": "integer"},
+                  "reviewer": {"type": "integer"}
+                },
+                "additionalProperties": false
+              },
+              "reviewer_barrier_points": {
+                "type": "array",
+                "minItems": 1,
+                "items": {"type": "string", "minLength": 1}
+              },
+              "convergence_required_for_closure": {"type": "boolean"}
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      },
+      "acceptance_checks": [
+        {"type": "output_json_schema"},
+        {"type": "truth_match"}
+      ]
+    },
+    {
+      "id": "r1_v3",
+      "prompt": "Using only the local route manifest, return valid JSON of the form {\"execution_shapes\": {\"single_lane\": [\"R1\", \"R2\", ...], \"bounded_swarm\": [\"R3\", \"R4\", ...]}} mapping each execution shape to the canonical route IDs that use it. Use only route IDs from this exact set: R1, R2, R3, R4, R5. Do not use semantic labels like coordinator, worker, planner, reviewer, workflow names, or prose.",
+      "truth_extractor": {
+        "type": "execution_shapes"
+      },
+      "output_schema": {
+        "type": "object",
+        "required": ["execution_shapes"],
+        "properties": {
+          "execution_shapes": {
+            "type": "object",
+            "required": ["single_lane", "bounded_swarm"],
+            "properties": {
+              "single_lane": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string",
+                  "enum": ["R1", "R2", "R3", "R4", "R5"]
+                }
+              },
+              "bounded_swarm": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string",
+                  "enum": ["R1", "R2", "R3", "R4", "R5"]
+                }
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      },
+      "acceptance_checks": [
+        {"type": "output_json_schema"},
+        {"type": "truth_match"}
+      ]
+    }
+  ]
+}

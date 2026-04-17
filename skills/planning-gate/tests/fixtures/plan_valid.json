@@ -1,0 +1,740 @@
+{
+  "schema_version": "plan.v1",
+  "objective": "Implement deterministic frontloaded planning for the governed control plane.",
+  "intent_contract": {
+    "objective": "Implement deterministic frontloaded planning for the governed control plane.",
+    "success_criteria": [
+      "Intent, readiness, compiler, gap, coverage, and sufficiency artifacts are emitted deterministically.",
+      "The plan compiles deterministically into execution-plan.v1 without semantic drift."
+    ],
+    "non_goals": [
+      "Do not build a separate planning-only runtime."
+    ],
+    "authority_sensitive_decisions": [
+      "Global control-plane policy wording and escalation semantics."
+    ],
+    "ambiguity_classification": [
+      {
+        "item_id": "amb-1",
+        "statement": "How much frontloaded structure is required before execution approval.",
+        "classification": "discoverable"
+      }
+    ],
+    "objective_shape_status": "accepted_as_given"
+  },
+  "clarification_governor": {
+    "default_batch_limit": 1,
+    "allowed_topics": [
+      "product_meaning",
+      "authority_security_boundaries",
+      "missing_success_criteria",
+      "non_discoverable_tradeoffs"
+    ],
+    "repo_discoverable_questions_forbidden": true,
+    "new_authority_boundary_required_for_mid_execution_clarification": true
+  },
+  "autonomous_session_readiness": {
+    "status": "execution_ready",
+    "safe_momentum_ready": true,
+    "readiness_gaps": [],
+    "next_executable_frontier": [
+      "packet-compiler",
+      "packet-verifier"
+    ]
+  },
+  "constraints": [
+    "Keep planning-gate CLI entrypoints stable.",
+    "Align planning outputs directly to the v2.7 autonomous-completion contract and packet DAG."
+  ],
+  "scope_boundaries": {
+    "in_scope": [
+      "planning-gate",
+      "route manifest",
+      "global Codex policy"
+    ],
+    "out_of_scope": [
+      "workspace repo implementations"
+    ]
+  },
+  "implementation_plan": [
+    "Extend the plan contract and schema for sufficiency and frontloaded planning fields.",
+    "Add compile and verify scripts for pre-approval artifacts.",
+    "Update validators, fixtures, and runtime docs to enforce the new frontloaded path."
+  ],
+  "solution_ladder": {
+    "L1_patch": "Patch only the immediate validator or workflow that exposed the gap.",
+    "L2_abstraction": "Extend the planning contract, validator, and review policy as a reusable abstraction for future planning work.",
+    "L3_operating_surface": "Create a full operator surface that standardizes layer choice across all planning and execution interfaces."
+  },
+  "chosen_layer": "L2_abstraction",
+  "layer_justification": "The issue recurs across non-trivial planning work, but the bounded fix is to harden the shared planning contract and review path rather than create a broader operating surface immediately.",
+  "why_not_lower": "A local patch would leave the same low-layer planning instinct to recur in future governed tasks.",
+  "why_not_higher": "A dedicated operating surface would be broader than needed for this contract-focused change and would add speculative framework work now.",
+  "future_reuse_gain": {
+    "frequency": "medium",
+    "spread": "multi_flow",
+    "operability": "reuse",
+    "boundedness": "bounded_now"
+  },
+  "existing_primitives_considered": [
+    "planning-gate validate_plan.py already gates non-trivial work",
+    "route_manifest.json already owns runtime route defaults",
+    "CLAUDE.md already owns global operator policy"
+  ],
+  "reuse_first_decision": "Harden the existing route manifest and planning-gate validators instead of creating a new control-plane subsystem.",
+  "estimated_files_touched": 8,
+  "estimated_loc": 900,
+  "budget_exception_justification": "This pass deliberately hardens shared policy, schemas, validators, and tests across the control plane; a smaller change would not enforce anti-overengineering fail-closed behavior.",
+  "new_surface_proof": "No new runtime surface is introduced. The change only constrains existing planning-gate and route-manifest primitives.",
+  "execution_shape": "bounded_swarm",
+  "swarm_justification": "This fixture intentionally exercises the bounded-swarm validation path so scheduler and convergence checks remain covered by tests.",
+  "definition_of_done": [
+    {
+      "id": "dod-1",
+      "category": "correctness",
+      "criterion": "Frontloaded planning artifacts and runtime compatibility checks validate deterministically.",
+      "verification": "python3.11 -m pytest /Users/chadsimon/.claude/skills/planning-gate/tests/test_validate_plan.py -k valid_plan"
+    },
+    {
+      "id": "dod-2",
+      "category": "tests",
+      "criterion": "Automated tests cover compile, verify, and plan-validation failure modes.",
+      "verification": "python3.11 -m pytest /Users/chadsimon/.claude/skills/planning-gate/tests"
+    },
+    {
+      "id": "dod-3",
+      "category": "security",
+      "criterion": "Out-of-policy contracts and unstable IDs are blocked by deterministic validators.",
+      "verification": "python3.11 -m pytest /Users/chadsimon/.claude/skills/planning-gate/tests/test_control_plane_contracts.py -k runtime"
+    },
+    {
+      "id": "dod-4",
+      "category": "observability",
+      "criterion": "Compiler, gap, coverage, and sufficiency artifacts are emitted as machine-readable JSON.",
+      "verification": "Inspect plan.compiler.json, plan.gaps.json, plan.coverage.json, and plan.sufficiency.json under planning_artifacts."
+    },
+    {
+      "id": "dod-5",
+      "category": "rollback",
+      "criterion": "Revision and blocked paths preserve explicit unresolved-gap output without silent approval.",
+      "verification": "python3.11 -m pytest /Users/chadsimon/.claude/skills/planning-gate/tests/test_validate_plan.py -k revise"
+    }
+  ],
+  "objective_requirements": [
+    {
+      "requirement_id": "req-compiler",
+      "description": "Compile a v2.7-aligned contract and stable ID set before plan approval.",
+      "priority": "core",
+      "definition_of_done": {
+        "behavior_outcome": "A runtime-compatible compiled contract is emitted with stable requirement and packet identifiers.",
+        "acceptance_checks": [
+          "compiler artifact emitted",
+          "stable IDs preserved"
+        ],
+        "evidence_requirements": [
+          "plan.compiler.json"
+        ],
+        "allowed_scope": [
+          "compile_plan.py",
+          "common.py"
+        ],
+        "rollback_or_fallback": "Revert compiler contract changes.",
+        "verifier_acceptance_condition": "Compiler artifact matches the plan contract and stable IDs.",
+        "objective_linkage": "req-compiler"
+      }
+    },
+    {
+      "requirement_id": "req-verifier",
+      "description": "Verify sufficiency and runtime compatibility before validate_plan approval.",
+      "priority": "critical",
+      "definition_of_done": {
+        "behavior_outcome": "Execution-ready plans are proven sufficient and runtime-compatible before approval.",
+        "acceptance_checks": [
+          "sufficiency artifact emitted",
+          "runtime checks pass"
+        ],
+        "evidence_requirements": [
+          "plan.sufficiency.json"
+        ],
+        "allowed_scope": [
+          "verify_plan.py",
+          "validate_plan.py"
+        ],
+        "rollback_or_fallback": "Return revise or blocked instead of approving a thin plan.",
+        "verifier_acceptance_condition": "Sufficiency artifact marks the plan approved and runtime-compatible.",
+        "objective_linkage": "req-verifier"
+      }
+    }
+  ],
+  "objective_coverage_map": [
+    {
+      "requirement_id": "req-compiler",
+      "packet_ids": ["packet-compiler"],
+      "verification": [
+        "python3.11 -m pytest /Users/chadsimon/.claude/skills/planning-gate/tests/test_control_plane_contracts.py -k plan"
+      ],
+      "evidence": [
+        "planning_artifacts/<track-id>/plan.compiler.json"
+      ]
+    },
+    {
+      "requirement_id": "req-verifier",
+      "packet_ids": ["packet-verifier"],
+      "verification": [
+        "python3.11 -m pytest /Users/chadsimon/.claude/skills/planning-gate/tests/test_validate_plan.py -k valid_plan"
+      ],
+      "evidence": [
+        "planning_artifacts/<track-id>/plan.sufficiency.json"
+      ]
+    }
+  ],
+  "assumptions_ledger": [
+    {
+      "assumption_id": "asm-1",
+      "statement": "Route and planning-gate entrypoints remain stable during the upgrade.",
+      "classification": "resolved_from_context",
+      "disposition": "Preserve validate_plan.py, validate_impl.py, and finalize_gate.py."
+    }
+  ],
+  "authority_map": [
+    {
+      "authority_id": "auth-policy-1",
+      "type": "policy",
+      "scope": "global-control-plane-policy",
+      "resolution": "encode in AGENTS and deterministic contracts"
+    }
+  ],
+  "integration_map": [
+    {
+      "integration_id": "int-validator-1",
+      "touchpoint": "planning-gate-validator",
+      "packet_ids": ["packet-compiler", "packet-verifier"],
+      "verification": [
+        "python3.11 -m pytest /Users/chadsimon/.claude/skills/planning-gate/tests"
+      ],
+      "evidence": [
+        "planning_artifacts/<track-id>/plan.coverage.json"
+      ]
+    }
+  ],
+  "evidence_plan": [
+    {
+      "name": "compiler-artifact",
+      "verification": "python3.11 /Users/chadsimon/.claude/skills/planning-gate/scripts/compile_plan.py --plan-json /abs/path/plan.json --track-id task-123",
+      "evidence": "planning_artifacts/<track-id>/plan.compiler.json"
+    },
+    {
+      "name": "sufficiency-artifact",
+      "verification": "python3.11 /Users/chadsimon/.claude/skills/planning-gate/scripts/verify_plan.py --plan-json /abs/path/plan.json --track-id task-123",
+      "evidence": "planning_artifacts/<track-id>/plan.sufficiency.json"
+    }
+  ],
+  "dependencies": [],
+  "tests": {
+    "unit": [
+      "python3.11 -m pytest /Users/chadsimon/.claude/skills/planning-gate/tests"
+    ],
+    "regression": [],
+    "integration": [],
+    "smoke_gates": [
+      {
+        "stage": "25%",
+        "status": "pass",
+        "criteria": "compiler contract is wired",
+        "commands": [
+          "python3.11 -m pytest /Users/chadsimon/.claude/skills/planning-gate/tests/test_validate_plan.py -k valid_plan"
+        ],
+        "expected_output": "plan validation succeeds",
+        "failure_interpretation": "frontloaded plan contract incomplete",
+        "proceed_decision": "halt if fail",
+        "rollback_decision": "revert contract edits"
+      },
+      {
+        "stage": "50%",
+        "status": "pass",
+        "criteria": "compiler and verifier scripts parse and run",
+        "commands": [
+          "python3.11 -m py_compile /Users/chadsimon/.claude/skills/planning-gate/scripts/compile_plan.py /Users/chadsimon/.claude/skills/planning-gate/scripts/verify_plan.py"
+        ],
+        "expected_output": "compile and verify scripts compile",
+        "failure_interpretation": "frontloaded planning scripts invalid",
+        "proceed_decision": "halt if fail",
+        "rollback_decision": "revert script edits"
+      },
+      {
+        "stage": "75%",
+        "status": "pass",
+        "criteria": "validator suite covers sufficiency and runtime compatibility",
+        "commands": [
+          "python3.11 -m pytest /Users/chadsimon/.claude/skills/planning-gate/tests/test_control_plane_contracts.py"
+        ],
+        "expected_output": "control-plane contract tests pass",
+        "failure_interpretation": "contract regression",
+        "proceed_decision": "halt if fail",
+        "rollback_decision": "revert validator edits"
+      },
+      {
+        "stage": "100%",
+        "status": "pass",
+        "criteria": "plan artifacts and final plan approval path are deterministic",
+        "commands": [
+          "python3.11 -m pytest /Users/chadsimon/.claude/skills/planning-gate/tests/test_validate_plan.py"
+        ],
+        "expected_output": "validate_plan suite passes",
+        "failure_interpretation": "plan approval path not deterministic",
+        "proceed_decision": "approve",
+        "rollback_decision": "return revise or blocked"
+      }
+    ]
+  },
+  "logging_plan": [
+    "capture compiler, gap, coverage, and sufficiency artifacts"
+  ],
+  "rollback_plan": [
+    "revert frontloaded planning changes and fall back to the prior plan approval path"
+  ],
+  "risks": [
+    "overplanning artifact bloat",
+    "runtime compatibility drift"
+  ],
+  "approval_gate": {
+    "status": "approve"
+  },
+  "non_goals": [
+    "Do not build a separate planning-only runtime."
+  ],
+  "quality_bar": {
+    "maintainability": "Packets remain single-behavior and aligned to v2.4 packet validity rules.",
+    "evidence": "Coverage, gap, compiler, and sufficiency artifacts are machine-readable and stable.",
+    "policy_compliance": "Plans that require runtime reconciliation, widen scope during compile, or hide authority issues are rejected."
+  },
+  "decomposition_policy": {
+    "single_primary_behavior_required": true,
+    "dependency_model": "dag_only"
+  },
+  "momentum_map": [
+    {
+      "packet_id": "packet-compiler",
+      "movement_type": "closure_advancing",
+      "unlocks_packets": [
+        "packet-verifier"
+      ],
+      "resolves_dependency_classification": false,
+      "isolates_blocker": false
+    },
+    {
+      "packet_id": "packet-verifier",
+      "movement_type": "uncertainty_reducing",
+      "unlocks_packets": [],
+      "resolves_dependency_classification": true,
+      "isolates_blocker": false
+    }
+  ],
+  "frontier_map": [
+    {
+      "packet_id": "packet-compiler",
+      "execution_mode": "sequence_required"
+    },
+    {
+      "packet_id": "packet-verifier",
+      "execution_mode": "parallel_safe"
+    }
+  ],
+  "objective_closure_policy": {
+    "allowed_states": [
+      "OBJECTIVE_COMPLETE",
+      "OBJECTIVE_COMPLETE_BOUNDARY_SHRUNK",
+      "OBJECTIVE_BLOCKED_ESCALATION_REQUIRED",
+      "OBJECTIVE_BLOCKED_MIGRATION_DEFECT",
+      "OBJECTIVE_REJECTED_FALSE_COMPLETION"
+    ],
+    "boundary_shrink_allowed": true
+  },
+  "migration_fallback_policy": {
+    "compat_fallback_allowed": true,
+    "max_fallback_invocations": 1,
+    "manifest_rollback_path": "/Users/chadsimon/.claude/bin/route_rollback.sh"
+  },
+  "scheduler_policy": {
+    "max_parallel_packets": 2,
+    "parallelism_policy": "bounded_parallel",
+    "lane_caps": {
+      "planner": 1,
+      "explorer": 2,
+      "worker": 2,
+      "validator": 2,
+      "reviewer": 1
+    },
+    "route_swarm_cap": 4,
+    "frontier_dispatch_order": [
+      "validator",
+      "explorer",
+      "worker",
+      "reviewer"
+    ],
+    "reviewer_barrier_points": [
+      "closure",
+      "high_risk_boundary_shrink"
+    ],
+    "convergence_required_for_closure": true,
+    "admission_rule": [
+      "packet validity",
+      "autonomy readiness",
+      "dependency readiness",
+      "conflict check",
+      "retry-budget check"
+    ],
+    "recompute_triggers": [
+      "verifier_verdict",
+      "packet_cancellation",
+      "repacketization",
+      "escalation_decision",
+      "boundary_shrink_decision"
+    ],
+    "terminal_stop_conditions": [
+      "objective_closed",
+      "escalation_required_no_runnable_packets",
+      "migration_defect_fallback_invoked",
+      "unrecoverable_graph_invalidity"
+    ]
+  },
+  "hardening_budget": {
+    "max_hardening_passes": 2,
+    "max_repacketization_passes": 1,
+    "max_unresolved_gaps_before_revise": 0,
+    "max_authority_blockers_before_blocked": 0
+  },
+  "plan_status": "execution_ready",
+  "plan_gap_report": {
+    "gaps_detected": [
+      "Initial draft lacked explicit objective coverage."
+    ],
+    "gaps_auto_fixed": [
+      "Added objective_coverage_map and packet definition of done."
+    ],
+    "gaps_escalated": [],
+    "gaps_unresolved": []
+  },
+  "pre_delivery_gap_review": {
+    "performed": true,
+    "issues_found": [
+      "The first draft did not make objective coverage and defaults explicit enough for first-pass review."
+    ],
+    "issues_fixed": [
+      "Added explicit objective coverage, locked defaults, and clarified acceptance evidence before plan presentation."
+    ],
+    "issues_remaining": [],
+    "ready_to_present": true,
+    "review_summary": "A silent pre-delivery gap review closed the discoverable completeness gaps before the first plan was presented."
+  },
+  "plan_sufficiency_report": {
+    "status": "execution_ready",
+    "coverage_complete": true,
+    "integration_realism": true,
+    "runtime_compatible": true,
+    "unresolved_gap_count": 0,
+    "verifier_notes": [
+      "Plan is sufficiently hardened and runtime-compatible."
+    ]
+  },
+  "requirement_risk_rank": [
+    {
+      "requirement_id": "req-compiler",
+      "priority": "core",
+      "associated_packet_ids": ["packet-compiler"],
+      "evidence_type": "artifact",
+      "failure_impact": "Runtime would consume an unstable or incomplete contract."
+    },
+    {
+      "requirement_id": "req-verifier",
+      "priority": "critical",
+      "associated_packet_ids": ["packet-verifier"],
+      "evidence_type": "artifact",
+      "failure_impact": "Thin plans could be approved without runtime compatibility proof."
+    }
+  ],
+  "failure_mode_matrix": [
+    {
+      "item_id": "fm-1",
+      "scenario": "Plan omits coverage for a required objective path.",
+      "handling": "Reject during verify and surface unresolved-gap output.",
+      "verification": "python3.11 -m pytest /Users/chadsimon/.claude/skills/planning-gate/tests/test_compile_verify_plan.py -k unresolved_gaps"
+    }
+  ],
+  "edge_case_matrix": [
+    {
+      "item_id": "ec-1",
+      "scenario": "Compact R2 plan still lacks a packet-local rollback path.",
+      "handling": "Reject execution_ready status and force revise.",
+      "verification": "python3.11 -m pytest /Users/chadsimon/.claude/skills/planning-gate/tests/test_validate_plan.py -k valid_plan"
+    }
+  ],
+  "packets": [
+    {
+      "packet_id": "packet-compiler",
+      "primary_behavior": "Compile the v2.7-aligned contract and stable IDs for the plan.",
+      "execution_strategy": "command_capture",
+      "strategy_inputs": {
+        "command": "python3.11 -m pytest /Users/chadsimon/.claude/skills/planning-gate/tests/test_control_plane_contracts.py -k plan",
+        "cwd": "/Users/chadsimon/.claude/skills/planning-gate/scripts"
+      },
+      "execution_mode": "sequence_required",
+      "packet_lane": "worker",
+      "swarm_eligible": true,
+      "parallelism_class": "serial",
+      "allowed_scope": [
+        "compile_plan.py",
+        "common.py"
+      ],
+      "dependencies": [],
+      "dependency_mode": "explicit_stub",
+      "stub_dependencies": [
+        "artifact-store"
+      ],
+      "acceptance_checks": [
+        "compiler artifact emitted",
+        "stable IDs preserved"
+      ],
+      "failure_signals": [
+        "missing compiler artifact",
+        "packet or requirement ID drift"
+      ],
+      "constraints": [
+        "Stay within planning-gate surfaces."
+      ],
+      "fallback_or_rollback": "Revert compiler contract changes.",
+      "verifier_mapping": "cycle-verifier:packet-compiler",
+      "evidence_destination": "planning_artifacts/<track-id>/packets/packet-compiler.verdict.json",
+      "shared_surface_categories": [
+        "planning-gate-core"
+      ],
+      "classification": "ready",
+      "product_meaning_resolved": true,
+      "automatable_acceptance": true,
+      "prohibited_action_required": false,
+      "maintainable_completion_path": true,
+      "definition_of_done": {
+        "behavior_outcome": "Compiled contract is emitted in v2.7-aligned shape.",
+        "acceptance_checks": [
+          "compiler artifact emitted",
+          "stable IDs preserved"
+        ],
+        "evidence_requirements": [
+          "plan.compiler.json"
+        ],
+        "allowed_scope": [
+          "compile_plan.py",
+          "common.py"
+        ],
+        "rollback_or_fallback": "Revert compiler contract changes.",
+        "verifier_acceptance_condition": "Compiler artifact matches the plan contract and stable IDs.",
+        "objective_linkage": "req-compiler"
+      }
+    },
+    {
+      "packet_id": "packet-verifier",
+      "primary_behavior": "Verify frontloaded plan sufficiency and runtime compatibility.",
+      "execution_strategy": "validation_command",
+      "strategy_inputs": {
+        "command": "python3.11 -m pytest /Users/chadsimon/.claude/skills/planning-gate/tests/test_validate_plan.py -k valid_plan",
+        "validation_lane": "tests",
+        "cwd": "/Users/chadsimon/.claude/skills/planning-gate/scripts"
+      },
+      "execution_mode": "parallel_safe",
+      "packet_lane": "validator",
+      "swarm_eligible": true,
+      "parallelism_class": "isolated",
+      "allowed_scope": [
+        "verify_plan.py",
+        "validate_plan.py"
+      ],
+      "dependencies": [],
+      "dependency_mode": "explicit_stub",
+      "stub_dependencies": [
+        "compiler-artifact"
+      ],
+      "acceptance_checks": [
+        "sufficiency artifact emitted",
+        "runtime capture manifests prove runtime checks pass"
+      ],
+      "failure_signals": [
+        "runtime compatibility check fails",
+        "unresolved gaps remain"
+      ],
+      "constraints": [
+        "Stay within planning-gate surfaces."
+      ],
+      "fallback_or_rollback": "Return revise or blocked instead of approving a thin plan.",
+      "verifier_mapping": "cycle-verifier:packet-verifier",
+      "evidence_destination": "planning_artifacts/<track-id>/packets/packet-verifier.verdict.json",
+      "shared_surface_categories": [
+        "planning-gate-verifier"
+      ],
+      "classification": "ready",
+      "packet_class": "validation",
+      "support_expectations": {
+        "expected_evidence_artifacts": [
+          "plan.sufficiency.json",
+          "validation capture manifests"
+        ],
+        "support_kind": "validation_lane"
+      },
+      "external_support_required": true,
+      "support_remediation_mode": "validation_packet",
+      "product_meaning_resolved": true,
+      "automatable_acceptance": true,
+      "prohibited_action_required": false,
+      "maintainable_completion_path": true,
+      "definition_of_done": {
+        "behavior_outcome": "Execution-ready plans are verified for sufficiency and runtime compatibility.",
+        "acceptance_checks": [
+          "sufficiency artifact emitted",
+          "runtime capture manifests prove runtime checks pass"
+        ],
+        "evidence_requirements": [
+          "plan.sufficiency.json"
+        ],
+        "allowed_scope": [
+          "verify_plan.py",
+          "validate_plan.py"
+        ],
+        "rollback_or_fallback": "Return revise or blocked instead of approving a thin plan.",
+        "verifier_acceptance_condition": "Sufficiency artifact marks the plan approved and runtime-compatible.",
+        "objective_linkage": "req-verifier"
+      }
+    }
+  ],
+  "contract_closure": {
+    "defined_terms": {
+      "authoritative": "Planning-gate validators and committed planning artifacts are the source of truth over operator prose.",
+      "valid": "Only exact Phase-1 contract shapes and enumerated values are accepted.",
+      "same_host": "The same canonical control-plane host identity for local process ownership checks.",
+      "occupied_slot": "A bounded surface that is already claimed by the current plan contract and may not be reused implicitly.",
+      "belongs_to_repo": "An artifact resolves back to the expected canonical workspace or artifacts root.",
+      "no_mutation": "The action returns an explicit error and does not change governed runtime state."
+    },
+    "authority_boundary": {
+      "source_of_truth": "The plan payload plus planning-gate validator contract are authoritative.",
+      "materialized_surfaces": [
+        "planning_artifacts/<track-id>/objective.intent.json",
+        "planning_artifacts/<track-id>/plan.sufficiency.json"
+      ],
+      "rewrite_precedence": "Validator recomputation wins over stale operator review text or cached assumptions.",
+      "continuity_rules": [
+        "Stable packet ids and requirement ids must be preserved.",
+        "Execution-ready status cannot be inferred when contract validation fails."
+      ]
+    },
+    "repair_boundary": {
+      "allowed_repair_path": "Only the compile/verify/validate planning-gate flow may repair planning artifacts.",
+      "mutators_forbidden_repair": [
+        "compile_plan.py must not silently widen scope",
+        "validate_plan.py must not invent missing fields"
+      ],
+      "bootstrap_before_serving": false
+    },
+    "mutator_contracts": {
+      "not_applicable_reason": "This fixture exercises contract validation for scripts and artifacts, not a public mutating API surface."
+    },
+    "read_contracts": {
+      "not_applicable_reason": "This fixture does not define a public read API surface."
+    },
+    "frozen_surfaces": {
+      "public_apis": [],
+      "modules": [
+        "scripts/common.py",
+        "scripts/compile_plan.py",
+        "scripts/verify_plan.py",
+        "scripts/validate_plan.py",
+        "scripts/finalize_gate.py"
+      ],
+      "persisted_paths": [
+        "planning_artifacts/<track-id>/objective.intent.json",
+        "planning_artifacts/<track-id>/plan.sufficiency.json"
+      ],
+      "enum_sets": {
+        "plan_status": [
+          "draft",
+          "hardening",
+          "execution_ready_candidate",
+          "execution_ready",
+          "revise",
+          "blocked"
+        ],
+        "solution_layers": [
+          "L1_patch",
+          "L2_abstraction",
+          "L3_operating_surface"
+        ]
+      },
+      "additions_forbidden": true
+    }
+  },
+  "overengineering_guardrails": {
+    "minimum_value_loop": "author plan -> compile intent -> compile plan -> verify plan -> validate plan",
+    "surface_budget": {
+      "new_public_apis": 0,
+      "new_modules": 6,
+      "new_persisted_top_level_paths": 3,
+      "new_closed_enum_families": 3,
+      "duplicated_state_surfaces": 2
+    },
+    "reuse_proof": {
+      "reused_primitives": [
+        "existing planning-gate validators",
+        "existing route manifest",
+        "existing governed artifacts"
+      ],
+      "not_added": [
+        "new planner service",
+        "new persistence family",
+        "new operator control surface"
+      ],
+      "why_not_lower": "A narrower patch would not keep future plans from drifting back into implicit contracts.",
+      "why_not_higher": "A broader operator surface would add control-plane scope before it is needed."
+    },
+    "deferred_surfaces": [
+      "new planning runtime",
+      "extra control endpoints",
+      "new convenience registries"
+    ],
+    "forbidden_growth": [
+      "hidden recovery in mutators",
+      "read APIs that write",
+      "new convenience registries",
+      "extra explanation surfaces",
+      "new control endpoints"
+    ],
+    "simplicity_tripwires": [
+      "new top-level persisted path without plan approval",
+      "new enum values outside frozen sets",
+      "extra public API method",
+      "repair path outside bootstrap",
+      "new operator surface beyond the minimum value loop"
+    ]
+  },
+  "session_harness": {
+    "required": true,
+    "route_hint": "R3",
+    "estimated_packet_count": 2,
+    "expected_duration_minutes": 45,
+    "checkpoint_interval_minutes": 20,
+    "checkpoint_required": true,
+    "context_index_required": true,
+    "bootstrap_commands": [
+      "python3.11 -m pytest /Users/chadsimon/.claude/skills/planning-gate/tests/test_validate_plan.py -k valid_plan"
+    ],
+    "validation_commands": [
+      "python3.11 -m pytest /Users/chadsimon/.claude/skills/planning-gate/tests"
+    ],
+    "clean_state_assertions": [
+      "Harness artifacts and packet IDs are resumable without chat history."
+    ],
+    "ui_evidence_required": false
+  },
+  "required_packets": [
+    "packet-compiler",
+    "packet-verifier"
+  ],
+  "autonomy_level": "L2_supervised_autonomous"
+}
