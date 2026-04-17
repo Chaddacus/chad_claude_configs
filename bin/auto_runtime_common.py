@@ -85,6 +85,7 @@ REPLAYABLE_EVENTS = {
     "memory_lifecycle_failed",
     "memory_lifecycle_skipped",
     "escalation_reset",
+    "effort_escalated",
     "maintenance_reconciled",
     "anticipation_recorded",
     "cycle_completed",
@@ -1092,6 +1093,55 @@ def _scope_mismatches(node: dict[str, Any], policy: dict[str, Any]) -> list[str]
 # Route promotion
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Effort escalation on retry
+#
+# When a slice enters rework (retry), bump its suggested effort one tier up
+# so the next dispatch uses more thinking budget than the previous attempt.
+# Independent of route promotion (which changes R2→R3→R4 only after multiple
+# retries exceed budget). Effort escalation fires on every rework, giving the
+# dispatcher a hint to spend more on the harder-than-expected slice.
+#
+# Consumers (e.g. /govern, /drive dispatch paths) should call
+# get_effective_effort(track_id, slice_id, base_effort) to resolve the
+# effort to use when invoking the next agent for that slice.
+# ---------------------------------------------------------------------------
+
+EFFORT_LADDER = ["low", "medium", "high", "xhigh"]
+
+
+def _next_effort_tier(current: str) -> str | None:
+    """Return the next effort tier up, or None if already at the ceiling."""
+    try:
+        idx = EFFORT_LADDER.index(current)
+    except ValueError:
+        return None
+    if idx + 1 >= len(EFFORT_LADDER):
+        return None
+    return EFFORT_LADDER[idx + 1]
+
+
+def get_effective_effort(track_id: str, slice_id: str, base_effort: str) -> str:
+    """Resolve the effort a dispatcher should use for this slice.
+
+    Reads governance.slice_escalations to find any recorded escalation for
+    this slice; returns the escalated effort if present, else base_effort.
+    Safe to call for a slice with no escalation history — returns base_effort
+    unchanged.
+    """
+    td = track_dir(track_id)
+    try:
+        state = _load_json(td / "objective.state.json")
+        governance = state["views"].get("governance", {})
+        escalations = governance.get("slice_escalations", {}) or {}
+        rec = escalations.get(slice_id)
+        if rec and rec.get("suggested_effort"):
+            return rec["suggested_effort"]
+    except (OSError, KeyError):
+        pass
+    return base_effort
+
+
 def _apply_route_promotion(
     graph: dict[str, Any],
     policy: dict[str, Any],
@@ -1736,13 +1786,52 @@ def update_node_state(
     if blockers is not None:
         node["blockers"] = blockers
 
-    # Track retries
+    # Track retries + record effort escalation for dispatch consumers.
+    # On rework, bump retry_count AND compute the next-tier effort suggestion.
+    # slice_escalations is read by get_effective_effort() during dispatch;
+    # a retried slice gets more thinking budget than its previous attempt.
+    effort_escalation_event: dict[str, Any] | None = None
     if new_state == "rework":
-        node.setdefault("metrics", {})["retry_count"] = node.get("metrics", {}).get("retry_count", 0) + 1
+        metrics = node.setdefault("metrics", {})
+        metrics["retry_count"] = metrics.get("retry_count", 0) + 1
+
+        if node.get("kind") == "slice":
+            route = state["views"].get("policy", {}).get("hard_policy", {}).get("route", {})
+            profile_overrides = route.get("profile_overrides", {})
+            # Default role is "worker" — most slices are worker-dispatched.
+            # Reviewer/planner slices can still use this escalation; the
+            # caller picks the base_effort when invoking get_effective_effort.
+            worker_profile = profile_overrides.get("worker", {})
+            current_effort = (
+                metrics.get("suggested_effort")
+                or worker_profile.get("effort")
+                or "medium"
+            )
+            next_tier = _next_effort_tier(current_effort)
+            if next_tier:
+                metrics["suggested_effort"] = next_tier
+                governance = state["views"].setdefault("governance", {})
+                escalations = governance.setdefault("slice_escalations", {})
+                escalations[node_id] = {
+                    "retry_count": metrics["retry_count"],
+                    "suggested_effort": next_tier,
+                    "previous_effort": current_effort,
+                    "escalated_at": now_iso(),
+                }
+                effort_escalation_event = {
+                    "event": "effort_escalated",
+                    "node_id": node_id,
+                    "from_effort": current_effort,
+                    "to_effort": next_tier,
+                    "retry_count": metrics["retry_count"],
+                }
 
     state["views"]["graph"] = graph
     _save_json(td / "objective.state.json", state)
     rebuild_materialized_views(track_id)
+
+    if effort_escalation_event is not None:
+        _append_event(track_id, effort_escalation_event)
 
     _append_event(track_id, {
         "event": "node_state_updated",

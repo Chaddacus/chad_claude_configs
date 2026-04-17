@@ -177,6 +177,14 @@ LOOP:
 - Alternate strategy: up to 2 attempts
 - Classify failures: incidental → retry, structural → repacketize, authority → escalate
 
+**Effort escalation on rework dispatch:**
+When re-dispatching a slice that entered `rework` (via `update-node --state rework`), the auto-runtime records a suggested bumped effort in `governance.slice_escalations[slice_id]`. Resolve the effective effort for the dispatch via:
+```bash
+EFFORT=$(python3 ~/.claude/bin/auto_runtime.py effort-for-slice \
+    --track-id <track_id> --slice-id <slice_id> --base-effort <route_manifest_effort>)
+```
+Use `$EFFORT` when invoking the agent for the retry. The helper returns `base-effort` unchanged if no escalation is recorded, so it's safe to always call. Ladder: `low → medium → high → xhigh`; ceiling is `xhigh`.
+
 ### Phase 4: Postflight (R3/R4)
 
 1. Compile artifacts in standard planning-gate schema:

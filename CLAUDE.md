@@ -73,18 +73,11 @@ These instructions apply to every Claude session in this home. Project-level `CL
 - At ~70% context window usage, auto-compact fires (enabled in settings.json). The PreCompact hook persists memory to omni-mem before compaction. After compaction, continue working — do not stop to report.
 - If tests fail, fix them. If a file is missing, create it. If a dependency is needed, install it. If the approach fails 3x, try a different approach. Do not stop to ask.
 
-### Anti-stop patterns (learned 2026-04-14, Phase β retrospective)
+### Anti-stop patterns (autonomous runs)
 
-These failure modes caused a "fully autonomous" run to stop at 7/10 slices. They are disallowed in all future autonomous runs:
+On autonomous runs: do not stop early, do not declare false completion, do not defer shippable code because "verification will eventually need a human." The Stop hook's `AUTO-SAVE` is a memory checkpoint, not an exit signal — continue the loop. Only legitimate exits are genuine ambiguity, unresolvable external dependency, or authority boundary.
 
-1. **"Manual" in the plan is not a stop signal.** The plan's tier model (T1 auto / T2 auto / T3 manual) explicitly separates code-writing from verification-requires-human-eyes. Write the code, ship the slice, flag the human-verification step as a pre-merge gate. Do not defer code because verification will eventually need a human.
-2. **One failed probe is not an unresolvable external dependency.** If the first attempt to fetch a corpus, read a DB, or reach a service fails, try at least 3 different approaches: running container API, docker-exec, git history, a different branch, a scaffold-with-placeholder, or writing code against the documented shape. "I grepped one path and it wasn't there" is not evidence of unresolvability.
-3. **Output-dependency is not code-dependency.** If slice B depends on slice A's runtime artifact, you can still write B's code against a placeholder A-artifact. Real A swaps in later with no B-code rewrite. "Blocked on A" only applies when B cannot be written without A's specific shape, and even then you can write the interface.
-4. **Plan scope is ALL slices, not the first N easy ones.** Do not summarize "run complete" until every slice in the plan is either shipped, explicitly deprecated (with justification), or blocked on a genuine boundary (authority / destructive / confirmed-unresolvable). Shipping 7/10 and writing a completion summary is a false completion, not a milestone.
-5. **Budget authorizes spending, it does not require hoarding.** If the plan allocates $X for the slice and the slice needs $X, spend it. Do not treat authorized budget as risky expense. "This would cost $3" is not a reason to defer when the cap is $50.
-6. **Stop hook is a memory checkpoint, not an exit signal.** The Stop hook's `AUTO-SAVE checkpoint` message means "persist memory and continue." It does NOT mean "handoff to user and stop." After the save, continue the loop. The only exits are the three legitimate stop reasons at the top of this section.
-
-When any of these patterns starts to form (e.g. "this needs a browser check so I'll defer", "the corpus isn't in /foo so it must not exist locally", "B is blocked on A so I'll stop"), name the pattern out loud in your thinking, identify which anti-pattern above applies, and take the next step anyway.
+Full rule set (with examples and the Phase β retrospective context) is injected on R3/R4/R5 prompts by `~/.claude/skills/govern/scripts/classify_prompt.py` via UserPromptSubmit additionalContext. That file is the source of truth; this stub exists so the guardrail survives hook failure.
 
 ### Verification
 - After completing an edit batch, run the project's typecheck/tests/lint before moving on. Don't wait to be told.
@@ -150,15 +143,10 @@ Runtime routing facts, profiles, thresholds, telemetry files, and governed-contr
 - `omni-mem` retrieval is recommended, not required.
 
 ### R3/R4 (governed lanes)
-- Use the governed path: run `omni-mem` retrieval, use the `planning-gate` skill, satisfy prompt-contract requirements, run validation before closeout.
-- `R3`/`R4` require planning-gate and Ralph postflight.
-- `R3` defaults to `execution_shape=single_lane`; `bounded_swarm` requires explicit justification and reuse-first proof.
-- `R4` may use a reviewer-centered `bounded_swarm` with the same justification requirements.
-- Plans must include a solution ladder (`L1_patch`, `L2_abstraction`, `L3_operating_surface`) and select the highest useful layer.
-- Plans must record `existing_primitives_considered`, `reuse_first_decision`, `estimated_files_touched`, `estimated_loc`.
-- Plans that exceed the simplicity budget or introduce a new runtime surface without proof must fail closed.
-- `finalize_gate.py` must return `ok=true` before R3/R4 work is treated as approved.
-- For R3/R4, produce a manual enterprise scorecard if no automated rubric tool exists.
+- Use the governed path: `omni-mem` retrieval → `planning-gate` skill → validation → `finalize_gate.py` must return `ok=true` before approval.
+- R3 defaults to `single_lane`; `bounded_swarm` requires justification. R4 may use reviewer-centered `bounded_swarm` under the same rule.
+
+Full R3/R4 gate set (solution ladder, reuse-first decisions, simplicity budget, enterprise scorecard) is injected on R3/R4/R5 prompts by `~/.claude/skills/govern/scripts/classify_prompt.py` via UserPromptSubmit additionalContext. That file is the source of truth; this stub exists so the guardrail survives hook failure.
 
 ## Governance Activation
 

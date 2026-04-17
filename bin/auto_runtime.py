@@ -124,6 +124,20 @@ def cmd_evaluate_verdict(args: argparse.Namespace) -> None:
     print()
 
 
+def cmd_effort_for_slice(args: argparse.Namespace) -> None:
+    """Print the effective effort for a slice, accounting for retry escalation.
+
+    Dispatchers (/govern prose, /drive prose, or any caller about to invoke
+    an agent for a specific slice) should call this to get the correct effort
+    setting. Prints just the effort string on stdout for easy shell use:
+
+        EFFORT=$(auto_runtime.py effort-for-slice --track-id X --slice-id Y \\
+                    --base-effort medium)
+    """
+    effort = rt.get_effective_effort(args.track_id, args.slice_id, args.base_effort)
+    print(effort)
+
+
 def cmd_manager_run_task(args: argparse.Namespace) -> None:
     result = rt.manager_run_task(
         task=args.task,
@@ -212,6 +226,14 @@ def main() -> None:
     p.add_argument("--evidence")
     p.add_argument("--acceptance-source")
     p.set_defaults(func=cmd_update_node)
+
+    # effort-for-slice
+    p = sub.add_parser("effort-for-slice", help="Resolve effort for a slice (accounts for retry escalation)")
+    p.add_argument("--track-id", required=True)
+    p.add_argument("--slice-id", required=True)
+    p.add_argument("--base-effort", required=True,
+                   help="Base effort from the route manifest (medium|high|xhigh etc)")
+    p.set_defaults(func=cmd_effort_for_slice)
 
     # manager-run-task
     p = sub.add_parser("manager-run-task", help="End-to-end bounded task execution")
