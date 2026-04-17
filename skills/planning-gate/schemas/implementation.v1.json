@@ -1,0 +1,144 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "planning-gate/implementation.v1.json",
+  "title": "Planning Gate Implementation v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "summary",
+    "changed_files",
+    "tests_run",
+    "smoke_results",
+    "logging_evidence",
+    "rollback_validation",
+    "memory_retrieval_evidence",
+    "preferences_applied",
+    "skill_trigger_eval_results",
+    "prompt_contract_used",
+    "frontend_roundtrip_evidence",
+    "objective_status",
+    "schedule_artifact",
+    "packet_verdicts",
+    "checkpoint_commit",
+    "checkpoint_blocked",
+    "checkpoint_block_reason",
+    "checkpoint_block_evidence",
+    "bootstrap_commands",
+    "validation_commands",
+    "clean_state_assertions",
+    "migration_fallback",
+    "budget_outcome"
+  ],
+  "properties": {
+    "schema_version": { "const": "implementation.v1" },
+    "summary": { "type": "string" },
+    "changed_files": { "type": "array", "items": { "type": "string" } },
+    "tests_run": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "command", "status", "result", "proof_artifact", "proof_hash"]
+      }
+    },
+    "smoke_results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["stage", "status", "command", "observed_output", "decision", "proof_artifact", "proof_hash"]
+      }
+    },
+    "logging_evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["event", "proof_artifact", "proof_hash"]
+      }
+    },
+    "rollback_validation": {
+      "type": "object",
+      "required": ["executed", "result", "evidence", "proof_artifact", "proof_hash"]
+    },
+    "memory_retrieval_evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["tool", "query", "result_count"]
+      }
+    },
+    "preferences_applied": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["key", "decision", "rationale"]
+      }
+    },
+    "skill_trigger_eval_results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["skill", "false_positive_rate", "false_negative_rate", "threshold_passed"]
+      }
+    },
+    "prompt_contract_used": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "required_context", "required_constraints", "verification_section", "done_when"]
+      }
+    },
+    "frontend_roundtrip_evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["step", "evidence"]
+      }
+    },
+    "objective_status": {
+      "type": "object",
+      "required": [
+        "objective_id",
+        "closure_state",
+        "completed_packets",
+        "pending_packets",
+        "blocked_packets",
+        "deferred_packets",
+        "boundary_shrunk_remainder",
+        "artifact_path"
+      ]
+    },
+    "schedule_artifact": { "type": "string", "minLength": 1 },
+    "packet_verdicts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["packet_id", "runtime_state", "verifier_output", "allowed_scope_status", "artifact_path"]
+      }
+    },
+    "checkpoint_commit": { "type": "string" },
+    "checkpoint_blocked": { "type": "boolean" },
+    "checkpoint_block_reason": { "type": "string" },
+    "checkpoint_block_evidence": { "type": "string" },
+    "bootstrap_commands": { "type": "array", "items": { "type": "string" } },
+    "validation_commands": { "type": "array", "items": { "type": "string" } },
+    "clean_state_assertions": { "type": "array", "items": { "type": "string" } },
+    "migration_fallback": {
+      "type": "object",
+      "required": ["used", "reason", "artifact_path"]
+    },
+    "budget_outcome": {
+      "type": "object",
+      "required": [
+        "planned_files_touched",
+        "planned_loc",
+        "actual_files_touched",
+        "actual_loc",
+        "exception_used",
+        "exception_justification",
+        "proof_artifact",
+        "proof_hash"
+      ]
+    }
+  },
+  "additionalProperties": true
+}

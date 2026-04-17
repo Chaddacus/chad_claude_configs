@@ -1,0 +1,84 @@
+:root {
+  color: #f4f0e8;
+  background: radial-gradient(circle at top, #274060, #111926 70%);
+  font-family: "Avenir Next", "Helvetica Neue", sans-serif;
+}
+
+body {
+  margin: 0;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+.app-shell {
+  min-height: 100vh;
+  padding: 24px;
+}
+
+.hero,
+.panel {
+  max-width: 960px;
+  margin: 0 auto 24px;
+}
+
+.hero {
+  display: grid;
+  gap: 16px;
+}
+
+.eyebrow {
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  font-size: 12px;
+  color: #d6c69b;
+}
+
+.lede {
+  max-width: 60ch;
+  line-height: 1.5;
+}
+
+.controls {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+button {
+  background: #f5b841;
+  color: #112;
+  border: 0;
+  padding: 10px 16px;
+  font-weight: 700;
+  border-radius: 999px;
+}
+
+.panel {
+  background: rgba(8, 14, 24, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 24px;
+  padding: 20px;
+}
+
+.status-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.scene-shell {
+  min-height: 360px;
+  display: grid;
+  place-items: center;
+  border-radius: 16px;
+  background: linear-gradient(145deg, rgba(255,255,255,0.08), rgba(0,0,0,0.16));
+}
+
+.scene-shell canvas,
+.scene-shell [data-testid="cube-viewport"] {
+  width: min(100%, 520px);
+  aspect-ratio: 1;
+}

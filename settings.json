@@ -1,0 +1,199 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash",
+      "Edit",
+      "Write",
+      "Read",
+      "Grep",
+      "Glob",
+      "WebFetch",
+      "WebSearch",
+      "Agent",
+      "Task",
+      "TaskCreate",
+      "TaskGet",
+      "TaskList",
+      "TaskUpdate",
+      "TaskStop",
+      "TaskOutput",
+      "Monitor",
+      "NotebookEdit",
+      "Skill",
+      "ScheduleWakeup",
+      "ToolSearch",
+      "mcp__omni-mem__save_memory",
+      "mcp__omni-mem__save_preference",
+      "mcp__omni-mem__journal_write",
+      "mcp__omni-mem__fact_add",
+      "mcp__omni-mem__fact_query",
+      "mcp__omni-mem__fact_invalidate",
+      "mcp__omni-mem__fact_stats",
+      "mcp__omni-mem__fact_timeline",
+      "mcp__omni-mem__search",
+      "mcp__omni-mem__build_context",
+      "mcp__omni-mem__build_briefing",
+      "mcp__omni-mem__build_memory_pack",
+      "mcp__omni-mem__consolidate_memory",
+      "mcp__omni-mem__check_duplicate",
+      "mcp__omni-mem__journal_read",
+      "mcp__omni-mem__list_domains",
+      "mcp__omni-mem__list_topics",
+      "mcp__omni-mem__timeline",
+      "mcp__omni-mem__topic_graph",
+      "mcp__omni-mem__taxonomy_overview",
+      "mcp__omni-mem__provider_metrics"
+    ],
+    "deny": [
+      "Bash(rm -rf /)",
+      "Bash(rm -rf ~)",
+      "Bash(rm -rf $HOME)",
+      "Bash(git push --force origin main)",
+      "Bash(git push --force origin master)",
+      "Bash(git push -f origin main)",
+      "Bash(git push -f origin master)"
+    ],
+    "defaultMode": "bypassPermissions"
+  },
+  "env": {
+    "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "400000"
+  },
+  "includeCoAuthoredBy": false,
+  "statusLine": {
+    "type": "command",
+    "command": "ccstatusline"
+  },
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /Users/chadsimon/code/omni-mem/hooks/omni_mem_save_hook.sh",
+            "timeout": 30
+          },
+          {
+            "type": "command",
+            "command": "python3 /Users/chadsimon/.claude/bin/completion_gate.py --event stop",
+            "timeout": 60
+          }
+        ]
+      }
+    ],
+    "TaskCompleted": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 /Users/chadsimon/.claude/bin/completion_gate.py --event task-completed",
+            "timeout": 60
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /Users/chadsimon/code/omni-mem/hooks/omni_mem_precompact_hook.sh",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 /Users/chadsimon/.claude/skills/govern/scripts/classify_prompt.py",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 /Users/chadsimon/.claude/bin/pre_tool_guard.py",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 /Users/chadsimon/.claude/bin/edit_verify_async.py",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 /Users/chadsimon/.claude/bin/tool_failure_context.py",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 /Users/chadsimon/.claude/bin/subagent_verify.py",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /Users/chadsimon/.claude/bin/notify_done.sh --status success --task session-end --channel desktop",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "startup",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 /Users/chadsimon/.claude/bin/omni_mem_session_start.py",
+            "timeout": 8
+          },
+          {
+            "type": "command",
+            "command": "python3 /Users/chadsimon/.claude/bin/rlm_session_preflight.py",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  },
+  "enabledPlugins": {
+    "rust-analyzer-lsp@claude-plugins-official": true
+  },
+  "effortLevel": "xhigh",
+  "skipDangerousModePermissionPrompt": true,
+  "autoCompact": true,
+  "mcpServers": {}
+}

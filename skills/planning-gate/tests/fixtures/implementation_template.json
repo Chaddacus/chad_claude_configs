@@ -1,0 +1,141 @@
+{
+  "schema_version": "implementation.v1",
+  "summary": "Template implementation payload",
+  "changed_files": ["file_a.py"],
+  "tests_run": [
+    {
+      "name": "unit",
+      "command": "python3 -m unittest",
+      "status": "pass",
+      "result": "all tests passed",
+      "proof_artifact": "__REPLACE__",
+      "proof_hash": "__REPLACE__"
+    }
+  ],
+  "smoke_results": [
+    {
+      "stage": "25%",
+      "status": "pass",
+      "command": "echo smoke",
+      "observed_output": "ok",
+      "decision": "continue",
+      "proof_artifact": "__REPLACE__",
+      "proof_hash": "__REPLACE__"
+    }
+  ],
+  "logging_evidence": [
+    {
+      "event": "checkpoint",
+      "proof_artifact": "__REPLACE__",
+      "proof_hash": "__REPLACE__"
+    }
+  ],
+  "rollback_validation": {
+    "executed": true,
+    "result": "pass",
+    "evidence": "rollback succeeded",
+    "proof_artifact": "__REPLACE__",
+    "proof_hash": "__REPLACE__"
+  },
+  "memory_retrieval_evidence": [
+    {
+      "tool": "mcp__codex-mem__build_context",
+      "query": "pref:planning-gate",
+      "result_count": 1
+    }
+  ],
+  "preferences_applied": [
+    {
+      "key": "pref:planning-gate",
+      "decision": "Use deterministic gates",
+      "rationale": "Matches control-plane policy."
+    }
+  ],
+  "skill_trigger_eval_results": [
+    {
+      "skill": "planning-gate",
+      "false_positive_rate": 0.0,
+      "false_negative_rate": 0.0,
+      "threshold_passed": true
+    }
+  ],
+  "prompt_contract_used": [
+    {
+      "name": "planning-gate-contract.v1",
+      "required_context": "Plan, harness artifacts, and implementation evidence.",
+      "required_constraints": "Keep packet and requirement IDs stable.",
+      "verification_section": "Validate plan, implementation, and finalize deterministically.",
+      "done_when": "Finalize gate returns ok=true."
+    }
+  ],
+  "frontend_roundtrip_evidence": [],
+  "objective_runtime_state": {
+    "schema_version": "objective-runtime-state.v1",
+    "objective_id": "__REPLACE__",
+    "track_id": "__REPLACE__",
+    "route_hint": "R3",
+    "controller_mode": "enforce",
+    "lifecycle_status": "approved",
+    "closure_state": "OBJECTIVE_COMPLETE",
+    "required_work_remaining": false,
+    "material_optional_work_remaining": false,
+    "stop_allowed": true,
+    "stop_reason": "all_policy_backed_work_satisfied",
+    "next_recommended_packet": "",
+    "unsupported_closure_risk": "none",
+    "last_verifier_result": {},
+    "artifact_path": "__REPLACE__"
+  },
+  "objective_status": {
+    "objective_id": "__REPLACE__",
+    "closure_state": "OBJECTIVE_COMPLETE",
+    "completed_packets": ["packet-a"],
+    "pending_packets": [],
+    "blocked_packets": [],
+    "deferred_packets": [],
+    "boundary_shrunk_remainder": [],
+    "artifact_path": "__REPLACE__"
+  },
+  "schedule_artifact": "__REPLACE__",
+  "packet_verdicts": [
+    {
+      "packet_id": "packet-a",
+      "runtime_state": "accepted",
+      "verifier_output": "accepted",
+      "allowed_scope_status": "within_scope",
+      "artifact_path": "__REPLACE__"
+    }
+  ],
+  "checkpoint_commit": "__REPLACE__",
+  "checkpoint_blocked": false,
+  "checkpoint_block_reason": "",
+  "checkpoint_block_evidence": "",
+  "bootstrap_commands": ["pytest -q"],
+  "validation_commands": ["pytest -q"],
+  "clean_state_assertions": ["Checkpoint artifacts are sufficient for a fresh-session resume."],
+  "migration_fallback": {
+    "used": false,
+    "reason": "not-needed",
+    "artifact_path": ""
+  },
+  "closure_drift_report": {
+    "unexpected_modules": [],
+    "unexpected_public_apis": [],
+    "unexpected_persisted_paths": [],
+    "unexpected_enum_values": [],
+    "unexpected_state_surfaces": [],
+    "repair_boundary_violations": [],
+    "read_only_boundary_violations": [],
+    "overengineering_tripwires_triggered": []
+  },
+  "budget_outcome": {
+    "planned_files_touched": 3,
+    "planned_loc": 500,
+    "actual_files_touched": 1,
+    "actual_loc": 120,
+    "exception_used": false,
+    "exception_justification": "not-needed",
+    "proof_artifact": "__REPLACE__",
+    "proof_hash": "__REPLACE__"
+  }
+}

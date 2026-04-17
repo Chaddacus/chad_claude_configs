@@ -1,0 +1,10 @@
+{
+  "type": "planning_gate_review",
+  "gate": "implementation",
+  "status": "approve",
+  "missing_fields": [],
+  "blocked_fields": [],
+  "content": "approved",
+  "risks": [],
+  "next_step": "finalize"
+}

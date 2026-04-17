@@ -1,0 +1,343 @@
+{
+  "version": "governed.v2.7",
+  "runtime_home_policy": {
+    "canonical_home": "/Users/chadsimon/.claude",
+    "mixed_home_policy": "fail_closed",
+    "noncanonical_override_env": "CLAUDE_ALLOW_NONCANONICAL_HOME_FOR_TESTS",
+    "required_runtime_files": [
+      "settings.json",
+      "state/route_manifest.json",
+      "bin/claude_run",
+      "bin/ralph_done_loop.py",
+      "skills/planning-gate/scripts/finalize_gate.py"
+    ],
+    "required_manifest_paths": [
+      "tooling.extractor",
+      "tooling.validator",
+      "tooling.rollback",
+      "postflight.lock_dir"
+    ]
+  },
+  "planning_frontend": {
+    "version": "frontloaded.v2.5+harness.v2.6+proxy.v2.7",
+    "applies_to_routes": [
+      "R2",
+      "R3",
+      "R4"
+    ],
+    "compact_r2_packet_limit": 3,
+    "required_artifacts": [
+      "objective.intent.json",
+      "plan.intent.json",
+      "plan.compiler.json",
+      "plan.gaps.json",
+      "plan.coverage.json",
+      "plan.sufficiency.json",
+      "plan.readiness.json",
+      "objective.session.json",
+      "objective.feature-list.json",
+      "objective.progress.jsonl",
+      "objective.checkpoint.json",
+      "objective.context-index.json",
+      "objective.momentum.json",
+      "objective.blockers.json"
+    ],
+    "required_preapproval_stages": [
+      "compile_intent",
+      "initialize_session",
+      "compile_plan",
+      "verify_plan",
+      "validate_plan"
+    ],
+    "session_harness_required": {
+      "R3": true,
+      "R4": true,
+      "R2": "when_estimated_packet_count_gt_1_or_expected_duration_gt_20m"
+    },
+    "checkpoint_required": true,
+    "context_index_required": true,
+    "checkpoint_interval_minutes": 20
+  },
+  "governing_abstraction": "proxy_completion_governor",
+  "proxy_completion_governor_required": true,
+  "intent_compiler_required": true,
+  "autonomous_session_readiness_required": true,
+  "clarification_governor_required": true,
+  "purposeful_iteration_governor_required": true,
+  "forward_motion_required": true,
+  "runtime_native_capture_required": true,
+  "runtime_capture_prefixes_required": [
+    "worker-",
+    "verifier-",
+    "test-",
+    "smoke-",
+    "log-",
+    "rollback-"
+  ],
+  "git_checkpoint_strategy_required": true,
+  "accepted_success_requires_git_checkpoint_rollback": true,
+  "autonomy_level": "L2_supervised_autonomous",
+  "safe_momentum_rule": "Safe momentum exists when at least one packet remains that is autonomy-ready, dependency-ready, policy-compliant, and expected to produce new evidence or advance the frontier without requiring unresolved authority decisions.",
+  "new_evidence_rule": "New evidence means test results, verifier verdicts, changed packet state, frontier movement, artifact updates, dependency unlocks, or concrete blocker isolation. Restated reasoning or repeated commands alone do not count as evidence.",
+  "uncertainty_reducing_packet_rule": "An uncertainty-reducing packet is valid only if its expected evidence will either unlock additional runnable packets, resolve a dependency classification, or isolate a blocker that previously prevented closure.",
+  "objective_shape_status_values": [
+    "accepted_as_given",
+    "accepted_rewritten",
+    "revise_required",
+    "blocked"
+  ],
+  "hierarchy": [
+    "global_invariants",
+    "repo_local_policy_pack",
+    "task_contract",
+    "execution_packet"
+  ],
+  "packet_validity_rule": "A packet is valid only if it has exactly one primary behavior, a bounded allowed scope, explicit dependency mode, objective acceptance checks, diagnosable failure signals, and a maintainable completion path.",
+  "autonomy_readiness_rule": "A packet is autonomy-ready only if product meaning is already resolved, all dependencies satisfy the declared dependency mode, acceptance checks are automatable, no prohibited action is required, and the packet can be completed within allowed scope.",
+  "maintainability_rule": "A maintainable completion path means the packet can be completed without unauthorized debt, hidden product decisions, unjustified duplication, or out-of-policy architectural drift.",
+  "packet": {
+    "graph_type": "dag",
+    "single_primary_behavior_required": true,
+    "structural_states": [
+      "ready",
+      "blocked_dependency",
+      "blocked_authority",
+      "deferred"
+    ],
+    "runtime_states": [
+      "queued",
+      "dispatched",
+      "in_progress",
+      "awaiting_verifier",
+      "accepted",
+      "rejected_rework",
+      "escalated",
+      "cancelled"
+    ],
+    "dependency_modes": [
+      "accepted_upstream",
+      "explicit_stub"
+    ],
+    "required_fields": [
+      "packet_id",
+      "primary_behavior",
+      "execution_mode",
+      "allowed_scope",
+      "dependencies",
+      "dependency_mode",
+      "acceptance_checks",
+      "failure_signals",
+      "constraints",
+      "fallback_or_rollback",
+      "classification"
+    ],
+    "dependency_rules": {
+      "accepted_upstream_requires_all_declared_dependencies_accepted": true,
+      "reject_cycles": true,
+      "reject_implicit_dependencies": true,
+      "reject_runtime_discovered_dependencies": true,
+      "reject_missing_dependency_ids": true
+    },
+    "allowed_scope": {
+      "hard_execution_boundary": true,
+      "supervisor_rewrite_required_for_expansion": true
+    }
+  },
+  "scheduler": {
+    "deterministic": true,
+    "runtime_state_machine": true,
+    "default_parallelism_policy": "bounded_parallel",
+    "default_max_parallel_packets": 2,
+    "max_same_strategy_retries": 2,
+    "max_noop_cycles": 2,
+    "max_verifier_return_cycles": 2,
+    "max_no_frontier_movement_cycles": 2,
+    "escalation_only_when_no_safe_momentum": true,
+    "parallelism_policies": [
+      "serial_only",
+      "bounded_parallel",
+      "aggressive_parallel"
+    ],
+    "aggressive_parallel_semantics": "dispatch_as_many_runnable_packets_as_allowed_by_max_parallel_packets_while_still_obeying_conflict_rules_verifier_gates_and_dependency_ordering",
+    "admission_checks": [
+      "packet validity",
+      "autonomy readiness",
+      "dependency readiness",
+      "conflict check",
+      "retry-budget check"
+    ],
+    "conflict_rule": "do_not_dispatch_concurrently_when_allowed_scope_intersects",
+    "retry_policy": {
+      "same_method_attempts": 2,
+      "alternate_strategy_attempts": 2,
+      "failure_classes": [
+        "incidental",
+        "structural",
+        "authority",
+        "migration_defect"
+      ],
+      "structural_failure_action": "repacketize_or_resequence",
+      "authority_failure_action": "escalate",
+      "migration_defect_action": "compat_fallback"
+    },
+    "recompute_triggers": [
+      "verifier_verdict",
+      "packet_cancellation",
+      "repacketization_event",
+      "escalation_decision",
+      "boundary_shrink_decision"
+    ],
+    "forward_motion_classifications": [
+      "closure_advancing",
+      "uncertainty_reducing",
+      "blocker_isolating",
+      "invalid_noop"
+    ],
+    "frontier_movement_reasons": [
+      "dependency_unlocked",
+      "packet_completed",
+      "packet_rewritten",
+      "blocker_isolated",
+      "authority_blocked"
+    ],
+    "terminal_stop_conditions": [
+      "objective_closed",
+      "escalation_required_no_runnable_safe_packets",
+      "migration_defect_fallback_invoked",
+      "unrecoverable_graph_invalidity_detected"
+    ],
+    "unrecoverable_graph_invalidity_examples": [
+      "cyclic_dependency_detected_after_rewrite",
+      "packet_removal_makes_required_closure_path_impossible",
+      "dependency_references_missing_packet_ids",
+      "packet_classifications_contradict_dag_readiness_rules"
+    ]
+  },
+  "objective_closure_states": [
+    "OBJECTIVE_COMPLETE",
+    "OBJECTIVE_COMPLETE_BOUNDARY_SHRUNK",
+    "OBJECTIVE_BLOCKED_ESCALATION_REQUIRED",
+    "OBJECTIVE_BLOCKED_MIGRATION_DEFECT",
+    "OBJECTIVE_REJECTED_FALSE_COMPLETION"
+  ],
+  "always_on_controller": {
+    "applies_to_routes": [
+      "R2",
+      "R3",
+      "R4"
+    ],
+    "runtime_owner": "govern_skill_orchestration",
+    "invocation_points": [
+      "task_start",
+      "post_packet_execution",
+      "post_verification",
+      "pre_completion"
+    ],
+    "route_modes": {
+      "R2": "enforce",
+      "R3": "enforce",
+      "R4": "enforce"
+    },
+    "required_obligations": [
+      "required_validations_passed",
+      "solution_layer_acceptable",
+      "no_blocked_policy_obligations",
+      "no_unsupported_closure_risk"
+    ],
+    "material_optional_work_rule": "A finishing packet is material only when it is policy-backed, bounded, low-risk, non-repetitive, and expected to improve correctness, regression confidence, maintainability, or UX with new evidence.",
+    "finishing_thresholds": {
+      "max_optional_repeat_cycles": 2,
+      "max_no_progress_cycles": 2,
+      "allow_optional_only_when_safe_momentum": true,
+      "require_new_evidence_or_quality_gain": true
+    },
+    "false_completion_enforcement": {
+      "default_mode": "enforce",
+      "audit_first_routes": [
+        "R2"
+      ]
+    }
+  },
+  "accepted_completion_types": [
+    "ACCEPTED_SUCCESS",
+    "ACCEPTED_BLOCKED"
+  ],
+  "accepted_completion_mapping": {
+    "OBJECTIVE_COMPLETE": "ACCEPTED_SUCCESS",
+    "OBJECTIVE_COMPLETE_BOUNDARY_SHRUNK": "ACCEPTED_BLOCKED",
+    "OBJECTIVE_BLOCKED_ESCALATION_REQUIRED": "ACCEPTED_BLOCKED",
+    "OBJECTIVE_BLOCKED_MIGRATION_DEFECT": "ACCEPTED_BLOCKED"
+  },
+  "artifact_contract": {
+    "objective_intent": "objective.intent.json",
+    "plan_intent": "plan.intent.json",
+    "plan_readiness": "plan.readiness.json",
+    "objective_contract": "objective.contract.json",
+    "objective_session": "objective.session.json",
+    "objective_feature_list": "objective.feature-list.json",
+    "objective_progress": "objective.progress.jsonl",
+    "objective_checkpoint": "objective.checkpoint.json",
+    "objective_context_index": "objective.context-index.json",
+    "objective_momentum": "objective.momentum.json",
+    "objective_blockers": "objective.blockers.json",
+    "objective_runtime_state": "objective.runtime-state.json",
+    "objective_packet_dag": "objective.packet-dag.json",
+    "objective_status": "objective.status.json",
+    "objective_schedule": "objective.schedule.json",
+    "cycle_request": "cycles/<cycle-id>/cycle.request.json",
+    "cycle_result": "cycles/<cycle-id>/cycle.result.json",
+    "cycle_review": "cycles/<cycle-id>/cycle.review.json",
+    "cycle_state": "cycles/<cycle-id>/cycle.state.json",
+    "packet_definition": "packets/<packet-id>.json",
+    "packet_verdict": "packets/<packet-id>.verdict.json",
+    "escalation_record": "escalations/<id>.json",
+    "migration_fallback": "migration-fallback.json"
+  },
+  "runtime_status_contract": [
+    "required_work_remaining",
+    "material_optional_work_remaining",
+    "stop_allowed",
+    "stop_reason",
+    "next_recommended_packet",
+    "unsupported_closure_risk"
+  ],
+  "schedule_telemetry_fields": [
+    "objective_id",
+    "max_parallel_packets",
+    "parallelism_policy",
+    "dispatch_history",
+    "runnable_set",
+    "blocked_set",
+    "retry_counters",
+    "strategy_switches",
+    "repacketization_events",
+    "current_frontier",
+    "closure_readiness",
+    "cycle_log",
+    "safe_momentum_available",
+    "frontier_movement",
+    "frontier_movement_reason",
+    "max_same_strategy_retries",
+    "max_noop_cycles",
+    "max_verifier_return_cycles",
+    "max_no_frontier_movement_cycles",
+    "noop_cycle_count",
+    "verifier_return_cycle_count",
+    "no_frontier_movement_cycle_count",
+    "total_packet_count",
+    "accepted_packet_count",
+    "rejected_packet_count",
+    "blocked_packet_count",
+    "repacketization_count",
+    "escalation_count",
+    "migration_fallback_used",
+    "total_runtime_attempts",
+    "runtime_states"
+  ],
+  "migration_fallback": {
+    "compat_mode": "v1-compat-supervised",
+    "max_fallback_invocations": 1,
+    "artifact_required": true,
+    "clean_success_allowed": false
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "planning-gate/verification-result.v1.json",
+  "title": "Planning Gate Verification Result v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "verification_id",
+    "step_id",
+    "unit_id",
+    "status",
+    "scope",
+    "blame",
+    "repairability",
+    "evidence",
+    "suggested_transition"
+  ],
+  "properties": {
+    "schema_version": { "const": "verification-result.v1" },
+    "verification_id": { "type": "string", "minLength": 1 },
+    "step_id": { "type": "string", "minLength": 1 },
+    "unit_id": { "type": "string", "minLength": 1 },
+    "status": { "type": "string", "enum": ["pass", "soft_fail", "hard_fail", "inconclusive"] },
+    "scope": { "type": "string", "enum": ["local", "targeted", "broad", "environment"] },
+    "blame": { "type": "string", "enum": ["introduced", "pre_existing", "unknown"] },
+    "repairability": { "type": "string", "enum": ["local_patch", "retryable", "narrow_scope", "blocked"] },
+    "evidence": { "type": "array", "items": { "type": "object" } },
+    "suggested_transition": { "type": "string", "enum": ["ready", "repair_pending", "finalize_pending", "blocked", "unsafe"] }
+  }
+}

@@ -1,0 +1,282 @@
+#!/usr/bin/env python3
+"""Completion verification gate for TaskCompleted and Stop hooks.
+
+Reads the verification-evidence ledger and runs project-level validation
+if there are unverified code edits. Returns structured context via
+hookSpecificOutput.
+
+Usage:
+    python3 completion_gate.py --event task-completed
+    python3 completion_gate.py --event stop
+"""
+
+import argparse
+import json
+import os
+import subprocess
+import sys
+import time
+
+sys.path.insert(0, os.path.join(os.environ.get("CLAUDE_HOME", os.path.expanduser("~/.claude")), "bin"))
+from hook_profile import should_run
+# Determine hook_id from --event arg
+_event = "stop" if "--event" in sys.argv and "stop" in sys.argv else "task"
+if not should_run(f"completion_gate_{_event}"):
+    sys.exit(0)
+
+LEDGER_PATH = f"/tmp/claude-verify-{os.environ.get('CLAUDE_SESSION_ID', 'default')}.json"
+CODE_EXTENSIONS = {
+    ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs",
+    ".py", ".pyw",
+    ".rs",
+    ".go",
+    ".java", ".kt", ".kts",
+    ".rb",
+    ".c", ".cpp", ".cc", ".h", ".hpp",
+    ".cs",
+    ".swift",
+    ".sh", ".bash", ".zsh",
+}
+MAX_OUTPUT_LINES = 30
+
+
+def load_ledger() -> dict:
+    """Load the verification-evidence ledger."""
+    if not os.path.exists(LEDGER_PATH):
+        return {
+            "edits": [],
+            "verifications": [],
+            "last_edit_at": 0,
+            "last_verified_at": 0,
+            "verified_clean": True,
+        }
+    try:
+        with open(LEDGER_PATH, "r") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, IOError):
+        return {
+            "edits": [],
+            "verifications": [],
+            "last_edit_at": 0,
+            "last_verified_at": 0,
+            "verified_clean": True,
+        }
+
+
+def save_ledger(ledger: dict) -> None:
+    """Save the verification-evidence ledger."""
+    try:
+        with open(LEDGER_PATH, "w") as f:
+            json.dump(ledger, f, indent=2)
+    except IOError:
+        pass
+
+
+def has_code_edits(ledger: dict) -> bool:
+    """Check if there are any code file edits in the ledger."""
+    for edit in ledger.get("edits", []):
+        ext = os.path.splitext(edit.get("file", ""))[1].lower()
+        if ext in CODE_EXTENSIONS:
+            return True
+    return False
+
+
+def find_project_root() -> str:
+    """Find the project root by looking for common project files."""
+    cwd = os.getcwd()
+    markers = [
+        "package.json", "Cargo.toml", "go.mod", "pyproject.toml",
+        "setup.py", "Makefile", ".git",
+    ]
+    path = cwd
+    while path != "/":
+        for marker in markers:
+            if os.path.exists(os.path.join(path, marker)):
+                return path
+        path = os.path.dirname(path)
+    return cwd
+
+
+def resolve_commands(project_root: str) -> list[dict]:
+    """Resolve verification commands based on project type.
+
+    Returns list of {"cmd": str, "label": str} dicts.
+    """
+    commands = []
+
+    # Node.js
+    pkg_json_path = os.path.join(project_root, "package.json")
+    if os.path.exists(pkg_json_path):
+        try:
+            with open(pkg_json_path, "r") as f:
+                pkg = json.load(f)
+            scripts = pkg.get("scripts", {})
+            if "test" in scripts:
+                commands.append({"cmd": "npm test", "label": "tests"})
+            if "typecheck" in scripts:
+                commands.append({"cmd": "npm run typecheck", "label": "typecheck"})
+            elif "check" in scripts:
+                commands.append({"cmd": "npm run check", "label": "check"})
+            elif os.path.exists(os.path.join(project_root, "tsconfig.json")):
+                commands.append({"cmd": "npx tsc --noEmit", "label": "typecheck"})
+        except (json.JSONDecodeError, IOError):
+            pass
+
+    # Python
+    pyproject_path = os.path.join(project_root, "pyproject.toml")
+    setup_py_path = os.path.join(project_root, "setup.py")
+    if os.path.exists(pyproject_path) or os.path.exists(setup_py_path):
+        if os.path.exists(pyproject_path):
+            try:
+                with open(pyproject_path, "r") as f:
+                    content = f.read()
+                if "[tool.pytest" in content or "[tool.pytest.ini_options]" in content:
+                    commands.append({"cmd": "python -m pytest", "label": "tests"})
+                if "ruff" in content:
+                    commands.append({"cmd": "ruff check .", "label": "lint"})
+            except IOError:
+                pass
+
+    # Rust
+    cargo_path = os.path.join(project_root, "Cargo.toml")
+    if os.path.exists(cargo_path):
+        commands.append({"cmd": "cargo test", "label": "tests"})
+        commands.append({"cmd": "cargo clippy", "label": "lint"})
+
+    # Go
+    go_mod_path = os.path.join(project_root, "go.mod")
+    if os.path.exists(go_mod_path):
+        commands.append({"cmd": "go test ./...", "label": "tests"})
+        commands.append({"cmd": "go vet ./...", "label": "lint"})
+
+    # Generic Makefile fallback
+    if not commands:
+        makefile_path = os.path.join(project_root, "Makefile")
+        if os.path.exists(makefile_path):
+            try:
+                with open(makefile_path, "r") as f:
+                    content = f.read()
+                if "\ntest:" in content or "\ntest " in content:
+                    commands.append({"cmd": "make test", "label": "tests"})
+                if "\ncheck:" in content or "\ncheck " in content:
+                    commands.append({"cmd": "make check", "label": "check"})
+            except IOError:
+                pass
+
+    return commands
+
+
+def run_command(cmd: str, project_root: str, timeout: int = 25) -> dict:
+    """Run a verification command and return structured results."""
+    try:
+        result = subprocess.run(
+            cmd,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            cwd=project_root,
+        )
+        output = (result.stdout + result.stderr).strip()
+        lines = output.split("\n")
+        if len(lines) > MAX_OUTPUT_LINES:
+            lines = lines[:MAX_OUTPUT_LINES] + [f"... ({len(lines) - MAX_OUTPUT_LINES} more lines)"]
+        return {
+            "command": cmd,
+            "exit_code": result.returncode,
+            "output": "\n".join(lines),
+            "passed": result.returncode == 0,
+        }
+    except subprocess.TimeoutExpired:
+        return {
+            "command": cmd,
+            "exit_code": -1,
+            "output": f"Command timed out after {timeout}s",
+            "passed": False,
+        }
+    except Exception as e:
+        return {
+            "command": cmd,
+            "exit_code": -1,
+            "output": f"Error running command: {e}",
+            "passed": False,
+        }
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--event", choices=["task-completed", "stop"], required=True)
+    args = parser.parse_args()
+
+    ledger = load_ledger()
+
+    # No code edits at all — nothing to verify
+    if not has_code_edits(ledger):
+        sys.exit(0)
+
+    # Already verified clean after last edit
+    last_edit = ledger.get("last_edit_at", 0)
+    last_verified = ledger.get("last_verified_at", 0)
+    if last_verified > last_edit and ledger.get("verified_clean", False):
+        sys.exit(0)
+
+    # Need to run verification
+    project_root = find_project_root()
+    commands = resolve_commands(project_root)
+
+    if not commands:
+        # No verifiable project detected
+        sys.exit(0)
+
+    results = []
+    all_passed = True
+    for cmd_info in commands:
+        result = run_command(cmd_info["cmd"], project_root)
+        result["label"] = cmd_info["label"]
+        results.append(result)
+        if not result["passed"]:
+            all_passed = False
+
+    # Update ledger
+    now = time.time()
+    for result in results:
+        ledger.setdefault("verifications", []).append({
+            "timestamp": now,
+            "command": result["command"],
+            "result": "pass" if result["passed"] else "fail",
+            "source": "hook",
+        })
+    ledger["last_verified_at"] = now
+    ledger["verified_clean"] = all_passed
+    save_ledger(ledger)
+
+    # Build output
+    if all_passed:
+        context = "✅ Completion gate: all checks passed"
+        for r in results:
+            context += f"\n  {r['label']}: ✅ {r['command']}"
+    else:
+        context = "❌ Completion gate: verification failed\n"
+        for r in results:
+            status = "✅" if r["passed"] else "❌"
+            context += f"\n  {r['label']}: {status} {r['command']}"
+            if not r["passed"]:
+                context += f"\n{r['output']}"
+        context += "\n\nFix before claiming done."
+
+    # Stop hooks don't support hookSpecificOutput — use top-level stopReason.
+    # PostToolUse/PreToolUse hooks use hookSpecificOutput with additionalContext.
+    if args.event == "stop":
+        envelope = {"stopReason": context}
+    else:
+        envelope = {
+            "hookSpecificOutput": {
+                "hookEventName": "PostToolUse",
+                "additionalContext": context,
+            }
+        }
+    print(json.dumps(envelope))
+
+
+if __name__ == "__main__":
+    main()

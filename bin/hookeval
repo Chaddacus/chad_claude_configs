@@ -1,0 +1,3 @@
+#!/bin/bash
+# Hook Evaluation Harness — shell wrapper
+exec python3 -m eval.hookeval "$@"

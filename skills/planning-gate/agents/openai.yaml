@@ -1,0 +1,4 @@
+interface:
+  display_name: "Planning Gate"
+  short_description: "Fail-closed plan and implementation gating"
+  default_prompt: "Use $planning-gate to enforce deterministic plan and implementation evidence checks before final approval, including a concrete Definition of Done list for enterprise-quality outcomes."

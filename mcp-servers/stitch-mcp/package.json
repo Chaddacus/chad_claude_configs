@@ -1,0 +1,16 @@
+{
+  "name": "stitch-mcp",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "dependencies": {
+    "@google/stitch-sdk": "^0.0.3",
+    "@modelcontextprotocol/sdk": "^1.26.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.0",
+    "typescript": "^5.3.0"
+  }
+}

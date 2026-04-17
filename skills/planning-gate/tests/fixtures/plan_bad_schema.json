@@ -1,0 +1,12 @@
+{
+  "schema_version": "plan.v0",
+  "objective": "bad schema",
+  "scope_boundaries": {},
+  "implementation_plan": [],
+  "dependencies": [],
+  "tests": {"unit": [], "regression": [], "integration": [], "smoke_gates": []},
+  "logging_plan": [],
+  "rollback_plan": [],
+  "risks": [],
+  "approval_gate": {}
+}

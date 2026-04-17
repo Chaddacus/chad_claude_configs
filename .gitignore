@@ -1,0 +1,73 @@
+# Allowlist-style .gitignore for ~/.claude config
+# Default: ignore EVERYTHING. Selectively unignore tracked items below.
+# This bias prevents accidental secret/state commits.
+
+/*
+
+# Repo metadata
+!/.gitignore
+!/README.md
+
+# Canonical policy docs
+!/CLAUDE.md
+!/POLICY_OWNERSHIP.md
+
+# Runtime config (NOT settings.local.json — machine-specific)
+!/settings.json
+
+# Behavior surfaces (tracked fully)
+!/agents/
+!/commands/
+!/skills/
+!/standards/
+!/sounds/
+!/mcp-servers/
+!/tests/
+
+# Custom scripts
+!/bin/
+# Exclude bin compiled/cache artifacts
+/bin/__pycache__/
+/bin/.pytest_cache/
+
+# State directory — only specific governed-config files
+!/state/
+/state/*
+!/state/route_manifest.json
+!/state/control_plane.json
+
+# Plugins — only the enablement list, not marketplace content
+!/plugins/
+/plugins/*
+!/plugins/installed_plugins.json
+!/plugins/blocklist.json
+
+# ====================================================================
+# Paranoid denies (catch anything sneaked into tracked dirs)
+# ====================================================================
+**/auth.json
+**/.auth*
+**/*.token
+**/*.pem
+**/*.key
+**/*.secret
+**/secrets/
+**/.env
+**/.env.*
+**/credentials.json
+**/credentials*.json
+**/*credentials*
+**/api_keys*
+**/.ssh/
+**/*.sqlite
+**/*.sqlite3
+**/*.db
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/.pytest_cache/
+**/node_modules/
+**/.DS_Store
+**/*.swp
+**/*.bak
+**/*.log
