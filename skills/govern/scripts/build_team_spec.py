@@ -57,6 +57,17 @@ def resolve_model(agent_name: str, profile_overrides: dict, default_fm: dict) ->
     return override.get("model", default_fm.get("model", "claude-opus-4-6"))
 
 
+def resolve_effort(agent_name: str, profile_overrides: dict, default_fm: dict) -> str:
+    """Resolve the effort for an agent: profile_overrides > frontmatter > medium.
+
+    Mirrors resolve_model so the route manifest's effort overrides (e.g. R4
+    reviewer at xhigh) actually reach the team spec. Prior to this, effort
+    was read only from agent frontmatter, silently ignoring profile_overrides.
+    """
+    override = profile_overrides.get(agent_name, {})
+    return override.get("effort", default_fm.get("effort", "medium"))
+
+
 def build_team(route: dict, track_id: str) -> dict:
     """Build a team spec for R3/R4 bounded swarm routes."""
     route_id = route["route_id"]
@@ -74,6 +85,7 @@ def build_team(route: dict, track_id: str) -> dict:
         cap = lane_caps.get(role, 1)
         fm, content = load_agent_definition(role)
         model = resolve_model(role, profile_overrides, fm)
+        effort = resolve_effort(role, profile_overrides, fm)
 
         for i in range(cap):
             suffix = f"-{i + 1}" if cap > 1 else ""
@@ -97,7 +109,7 @@ def build_team(route: dict, track_id: str) -> dict:
                 "role": role,
                 "prompt": content,
                 "sandbox": sandbox,
-                "effort": fm.get("effort", "medium"),
+                "effort": effort,
             }
             members.append(member)
 

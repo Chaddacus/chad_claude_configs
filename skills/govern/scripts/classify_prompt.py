@@ -28,12 +28,28 @@ if not should_run("classify_prompt"):
 #   - file paths are mentioned.
 # ---------------------------------------------------------------------------
 
-AUTH_KEYWORDS = {
-    "auth", "authenticate", "authentication", "authorization", "authorize",
-    "login", "logout", "session", "token",
+# AUTH_STRONG: always triggers R4 on single match. These are the auth-primitive
+# keywords — naming one of these is explicit intent to touch auth mechanics.
+AUTH_STRONG = {
+    "authentication", "authorization", "authorize",
     "jwt", "oauth", "password", "credential", "rbac",
-    "permission", "permissions",
-    "role", "access control", "api key", "secret",
+    "api key", "secret", "login", "logout",
+}
+
+# AUTH_WEAK: needs compound evidence (another risk signal active, file path
+# mentioned, or 2+ weak matches). These keywords appear in non-auth contexts
+# constantly ("session-end hook", "set permission", "check role of agent", etc.)
+# and firing R4 on a single match produces false-positives that escalate cost
+# without proportionate safety gain.
+AUTH_WEAK = {
+    "auth",            # common in agent names and config keys
+    "authenticate",    # narrow — but appears in MCP/tool names sometimes
+    "session",         # many non-auth usages (session-end, session log)
+    "token",           # API tokens, rate-limit tokens, etc.
+    "permission",      # "permission to do X", "add permission", settings.json
+    "permissions",
+    "role",            # many non-auth usages (agent role, task role)
+    "access control",  # narrow but still worth compounding
 }
 
 SECURITY_STRONG = {
@@ -112,8 +128,27 @@ def classify_prompt(prompt: str) -> dict:
 
     # --- Compute risk signals (order matters: acyclic dependencies) ---
 
-    touches_auth = has_keywords(prompt, AUTH_KEYWORDS)
     touches_deploy = has_keywords(prompt, DEPLOY_KEYWORDS)
+
+    # Auth: strong keywords always trigger; weak keywords need compound evidence.
+    # Fixes the earlier false-positive problem where single words like
+    # "permission" or "session" hit R4 on prompts that were routine config
+    # edits, not auth changes.
+    #
+    # File-path mention is NOT sufficient compound evidence for auth —
+    # "add permission to settings.json" is a config edit, not an auth change.
+    # Require either a deploy context, another risk category active, or
+    # multiple weak auth matches.
+    touches_auth_strong = has_keywords(prompt, AUTH_STRONG)
+    touches_auth_weak = has_keywords(prompt, AUTH_WEAK)
+    weak_auth_count = (
+        _count_weak_matches(prompt, AUTH_WEAK) if touches_auth_weak else 0
+    )
+    touches_auth = touches_auth_strong or (
+        touches_auth_weak and (
+            touches_deploy or weak_auth_count >= 2
+        )
+    )
 
     # Security: strong always triggers; weak needs compound evidence
     touches_security_strong = has_keywords(prompt, SECURITY_STRONG)
@@ -200,6 +235,55 @@ def classify_prompt(prompt: str) -> dict:
     }
 
 
+# ---------------------------------------------------------------------------
+# Route-gated policy blocks
+#
+# These blocks moved out of ~/.claude/CLAUDE.md on 2026-04-17 to save tokens
+# on R1/R2 prompts where they don't apply. They are injected into the session
+# via UserPromptSubmit additionalContext only when the classified route calls
+# for them. CLAUDE.md retains a minimal stub pointing at this file as the
+# source of truth.
+# ---------------------------------------------------------------------------
+
+ANTI_STOP_PATTERNS = """## Anti-stop patterns (autonomous runs)
+
+These failure modes caused a "fully autonomous" run to stop at 7/10 slices. Disallowed in all future autonomous runs:
+
+1. **"Manual" in the plan is not a stop signal.** Write the code, ship the slice, flag the human-verification step as a pre-merge gate. Do not defer code because verification will eventually need a human.
+2. **One failed probe is not an unresolvable external dependency.** Try at least 3 different approaches (running container API, docker-exec, git history, different branch, scaffold-with-placeholder) before declaring blocked.
+3. **Output-dependency is not code-dependency.** Write slice B against a placeholder A-artifact if A isn't ready. "Blocked on A" only applies when B cannot be written without A's specific shape.
+4. **Plan scope is ALL slices, not the first N easy ones.** No false completion summaries. Every slice must be shipped, explicitly deprecated with justification, or blocked on a genuine boundary.
+5. **Budget authorizes spending, it does not require hoarding.** If the slice needs the authorized budget, spend it.
+6. **Stop hook is a memory checkpoint, not an exit signal.** After AUTO-SAVE, continue the loop. Only legitimate exits: genuine ambiguity, unresolvable external dependency, authority boundary.
+
+When any of these patterns starts to form ("this needs a browser check so I'll defer", "the corpus isn't in /foo so it must not exist locally", "B is blocked on A so I'll stop"), name the pattern, identify which anti-pattern applies, and take the next step anyway."""
+
+
+R3_R4_GOVERNANCE_GATES = """## R3/R4 governed-lanes gates
+
+- Use the governed path: run omni-mem retrieval, use planning-gate skill, satisfy prompt-contract requirements, run validation before closeout.
+- R3/R4 require planning-gate and Ralph postflight.
+- R3 defaults to execution_shape=single_lane; bounded_swarm requires explicit justification and reuse-first proof.
+- R4 may use a reviewer-centered bounded_swarm with the same justification requirements.
+- Plans must include a solution ladder (L1_patch, L2_abstraction, L3_operating_surface) and select the highest useful layer.
+- Plans must record existing_primitives_considered, reuse_first_decision, estimated_files_touched, estimated_loc.
+- Plans that exceed the simplicity budget or introduce a new runtime surface without proof must fail closed.
+- finalize_gate.py must return ok=true before R3/R4 work is treated as approved.
+- For R3/R4, produce a manual enterprise scorecard if no automated rubric tool exists."""
+
+
+def route_policy_block(result: dict) -> str:
+    """Build the route-specific policy block to inject into the session.
+
+    Returns empty string for R1/R2 (no extra policy beyond always-loaded
+    CLAUDE.md). Returns anti-stop + R3/R4 gates for R3/R4/R5 prompts.
+    """
+    route = result.get("route_hint", "R1")
+    if route in ("R1", "R2"):
+        return ""
+    return ANTI_STOP_PATTERNS + "\n\n" + R3_R4_GOVERNANCE_GATES
+
+
 def main():
     # Hook system passes prompt via environment variable
     prompt = os.environ.get("CLAUDE_USER_PROMPT", "")
@@ -218,11 +302,14 @@ def main():
     except OSError:
         pass
 
-    context = (
+    status = (
         f"[route-classifier] route_hint={result['route_hint']} "
         f"governance_recommended={result['governance_recommended']} "
         f"reason={result['reason']}"
     )
+    policy = route_policy_block(result)
+    context = status if not policy else f"{status}\n\n{policy}"
+
     envelope = {
         "hookSpecificOutput": {
             "hookEventName": "UserPromptSubmit",
