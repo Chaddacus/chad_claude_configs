@@ -263,6 +263,10 @@ def workspace_snapshot(workspace: Path) -> dict[str, float]:
         return out
     excluded = {".git", "__pycache__", ".venv", "venv", "node_modules", ".pytest_cache", ".mypy_cache", ".ruff_cache", "dist", "build", ".tox", ".eggs", "data"}
     excluded_suffixes = (".db", ".sqlite", ".sqlite3", ".db-journal", ".db-shm", ".db-wal", ".log")
+    # Lockfiles auto-updated by package managers — benign side effects of `uv sync`,
+    # `npm install`, etc. Treating them as goose-authored writes triggers spurious
+    # sandbox violations on every Python/JS slice.
+    excluded_names = {"uv.lock", "poetry.lock", "Pipfile.lock", "package-lock.json", "pnpm-lock.yaml", "yarn.lock"}
     for p in workspace.rglob("*"):
         if p.is_file() and not (excluded & set(p.parts)):
             # Exclude *.egg-info directories (Python packaging metadata)
@@ -270,6 +274,9 @@ def workspace_snapshot(workspace: Path) -> dict[str, float]:
                 continue
             # Exclude SQLite + log runtime artifacts
             if p.name.endswith(excluded_suffixes):
+                continue
+            # Exclude package-manager lockfiles
+            if p.name in excluded_names:
                 continue
             try:
                 out[str(p.relative_to(workspace))] = p.stat().st_mtime

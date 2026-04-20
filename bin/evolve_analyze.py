@@ -70,7 +70,15 @@ def _save_proposal(prop: dict) -> bool:
 def _make_proposal(
     type_: str, target: str, content: str, evidence: list[str],
     confidence: str, auto_apply: bool, anchor: str | None = None,
+    dedup_phrases: list[str] | None = None,
 ) -> dict:
+    """Build a proposal dict.
+
+    `dedup_phrases`: distinctive phrases that, if present in the target file,
+    mean this proposal's intent is already covered. Used by evolve_apply.py
+    to avoid re-introducing rules that were merged into other rules during
+    consolidation. Match is case-insensitive substring.
+    """
     evidence_key = "|".join(sorted(evidence)) + "::" + type_ + "::" + target
     h = hashlib.sha256(evidence_key.encode()).hexdigest()[:16]
     return {
@@ -86,22 +94,69 @@ def _make_proposal(
         "auto_apply": auto_apply,
         "applied": False,
         "applied_at": None,
+        "dedup_phrases": dedup_phrases or [],
     }
+
+
+_STRAY_DIR_PATTERNS = (
+    "test_dir", "tmp_test", "tmp_dir", "scratch", "scratch_dir",
+    "debug", "debug_dir", "temp", "tmpdir", "playground", "sandbox_dir",
+    "experiment", "throwaway", "_tmp", "_test_tmp",
+)
+_EXPECTED_TOP_LEVEL = {
+    ".git", ".venv", "venv", "node_modules", "__pycache__", ".pytest_cache",
+    ".mypy_cache", ".ruff_cache", "dist", "build", ".tox", ".eggs",
+    "src", "lib", "app", "tests", "test", "docs", "doc", "scripts",
+    "static", "templates", "public", "assets", "data", "migrations",
+    "backups", ".github", ".vscode", ".idea", "config", "conf",
+    "frontend", "backend", "client", "server", "api", "web",
+}
 
 
 def _scan_workspace_antipatterns(workspace: str) -> list[str]:
     """Static scan of a completed workspace for known anti-patterns.
 
     Returns a list of antipattern tags found, e.g. ['staticpool-no-thread',
-    'fastapi-post-no-body-model', 'redirect-test-no-follow-redirects-false'].
-    Used by detect_patterns to surface code-shape failures the metric-based
-    analyzer would otherwise miss.
+    'fastapi-post-no-body-model', 'redirect-test-no-follow-redirects-false',
+    'stray-fixture-dir']. Used by detect_patterns to surface code-shape
+    failures the metric-based analyzer would otherwise miss.
     """
     from pathlib import Path
     tags: list[str] = []
     ws = Path(workspace)
     if not ws.exists():
         return tags
+
+    # Antipattern 4: stray fixture / scratch directories at workspace root.
+    # Goose occasionally creates throwaway dirs like test_dir/, tmp_test/,
+    # scratch/ when it should be using pytest's tmp_path fixture or running
+    # in-process. Flag any top-level dir whose name matches a known stray
+    # pattern OR isn't in the expected-top-level allowlist and contains only
+    # transient-looking content (a single .py file, a single .txt, etc.).
+    try:
+        for entry in ws.iterdir():
+            if not entry.is_dir():
+                continue
+            name = entry.name.lower()
+            if name in _EXPECTED_TOP_LEVEL:
+                continue
+            # Skip hidden/dotted dirs — they're config or tooling, not stray.
+            if name.startswith("."):
+                continue
+            if any(pat in name for pat in _STRAY_DIR_PATTERNS):
+                tags.append(f"stray-fixture-dir:{entry.name}")
+                continue
+            # Unknown dir: flag if it looks throwaway (<=2 files, all small)
+            try:
+                children = list(entry.iterdir())
+            except OSError:
+                continue
+            if 0 < len(children) <= 2 and all(
+                c.is_file() and c.stat().st_size < 4096 for c in children
+            ):
+                tags.append(f"stray-fixture-dir:{entry.name}")
+    except OSError:
+        pass
 
     # Scan Python files (capped to avoid runaway on huge workspaces)
     py_files = []
@@ -193,6 +248,16 @@ def detect_patterns(history: list[dict], window: int = 5) -> list[dict]:
             auto_apply=True,
         ))
 
+    if ws_counter.get("stray-fixture-dir", 0) >= 2:
+        proposals.append(_make_proposal(
+            type_="append_rule",
+            target=str(GOOSEHINTS),
+            content="- Do NOT create scratch/fixture directories at the workspace root (test_dir/, tmp_test/, scratch/, debug/, etc.). Tests that need a temp filesystem MUST use pytest's `tmp_path` fixture, which creates an isolated dir per test and cleans up automatically. Throwaway dirs left at the repo root pollute the workspace and trigger sandbox-violation escalations.",
+            evidence=workspace_evidence.get("stray-fixture-dir", []),
+            confidence="high",
+            auto_apply=True,
+        ))
+
     # Aggregate failure categories across recent window
     cat_counter: Counter[str] = Counter()
     for run in recent:
@@ -212,6 +277,7 @@ def detect_patterns(history: list[dict], window: int = 5) -> list[dict]:
             evidence=evidence,
             confidence="high",
             auto_apply=True,
+            dedup_phrases=["NEVER weaken tests", "NEVER alter test logic", "Acceptance fidelity"],
         ))
 
     # Pattern 2: repeated sandbox violations (goose creating unexpected files)
@@ -227,6 +293,7 @@ def detect_patterns(history: list[dict], window: int = 5) -> list[dict]:
             evidence=evidence,
             confidence="high",
             auto_apply=True,
+            dedup_phrases=["auxiliary helper files", "Do NOT create auxiliary"],
         ))
 
     # Pattern 3: repeated infra_down
@@ -255,6 +322,11 @@ def detect_patterns(history: list[dict], window: int = 5) -> list[dict]:
             evidence=evidence,
             confidence="medium",
             auto_apply=True,
+            dedup_phrases=[
+                "re-read the acceptance script",
+                "Acceptance fidelity",
+                "re-read the acceptance gate",
+            ],
         ))
 
     # Pattern 5: supervisor takeovers on similar task type → capability gap
@@ -268,6 +340,7 @@ def detect_patterns(history: list[dict], window: int = 5) -> list[dict]:
             evidence=evidence,
             confidence="high",
             auto_apply=True,
+            dedup_phrases=["Library-first", "search pip/npm for a maintained library"],
         ))
 
     return proposals

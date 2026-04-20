@@ -79,12 +79,32 @@ def backup_file(target: Path) -> Path:
     return dest
 
 
-def append_to_file(target: Path, content: str, anchor: str | None) -> bool:
+def _content_already_covered(existing: str, content: str, dedup_phrases: list[str] | None) -> bool:
+    """True if the proposal is semantically already covered by `existing`.
+
+    Checks (in order):
+      1. Exact substring match (cheap, catches identical re-proposals).
+      2. Any dedup_phrase from the proposal appears in existing (case-insensitive).
+         Phrases are author-supplied distinctive markers from evolve_analyze.py;
+         if even one is present, the rule's intent is already in the file.
+    """
+    if content.strip() in existing:
+        return True
+    if dedup_phrases:
+        haystack = existing.lower()
+        for phrase in dedup_phrases:
+            if phrase and phrase.lower() in haystack:
+                return True
+    return False
+
+
+def append_to_file(target: Path, content: str, anchor: str | None,
+                   dedup_phrases: list[str] | None = None) -> bool:
     """Append content to target. Returns True if written, False if already present."""
     target.parent.mkdir(parents=True, exist_ok=True)
     existing = target.read_text(encoding="utf-8") if target.exists() else ""
-    if content.strip() in existing:
-        return False  # already present, idempotent
+    if _content_already_covered(existing, content, dedup_phrases):
+        return False  # already present (verbatim or semantically), idempotent
     sep = "\n" if existing and not existing.endswith("\n") else ""
     if anchor and anchor in existing:
         # Insert after the anchor line
@@ -123,10 +143,11 @@ def apply_proposal(prop: dict, dry_run: bool, force: bool) -> tuple[bool, str]:
 
     # Don't snapshot a backup unless we're actually going to write.
     existing = t.read_text(encoding="utf-8") if t.exists() else ""
-    if content.strip() in existing:
-        return True, "no-op (content already present, marked applied)"
+    dedup_phrases = prop.get("dedup_phrases") or []
+    if _content_already_covered(existing, content, dedup_phrases):
+        return True, "no-op (content already covered by existing file, marked applied)"
     backup = backup_file(t)
-    append_to_file(t, content, prop.get("anchor"))
+    append_to_file(t, content, prop.get("anchor"), dedup_phrases)
     return True, f"applied (backup: {backup.name})"
 
 
