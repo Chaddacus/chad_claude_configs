@@ -1777,6 +1777,34 @@ def update_node_state(
             })
             return {"node_id": node_id, "old_state": old_state, "new_state": old_state, "rejected": True, "reason": "missing_evidence"}
 
+        # ORBIT pattern: if the slice declares an acceptance_check command,
+        # require a verify:*:exit=0 token in evidence. Any declared check must
+        # have been executed with exit code 0. Slices without an acceptance_check
+        # fall back to the presence-only gate above (backward-compatible).
+        acceptance_check = node.get("slice_contract", {}).get("acceptance_check")
+        if acceptance_check:
+            passed = any(
+                isinstance(e, str) and e.startswith("verify:") and e.endswith(":exit=0")
+                for e in effective_evidence
+            )
+            if not passed:
+                _append_event(track_id, {
+                    "event": "transition_rejected",
+                    "node_id": node_id,
+                    "attempted_state": "accepted",
+                    "reverted_to": old_state,
+                    "reason": "acceptance_check_unverified",
+                    "acceptance_check": acceptance_check,
+                })
+                return {
+                    "node_id": node_id,
+                    "old_state": old_state,
+                    "new_state": old_state,
+                    "rejected": True,
+                    "reason": "acceptance_check_unverified",
+                    "acceptance_check": acceptance_check,
+                }
+
     node["state"] = new_state
 
     if evidence_refs:
