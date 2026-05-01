@@ -9,7 +9,11 @@ import { StitchToolClient } from '@google/stitch-sdk';
 // MCP uses stdio — stdout is JSON-RPC only. Redirect console.log to stderr.
 console.log = (...args: any[]) => console.error('[stitch-mcp]', ...args);
 
-const API_KEY = process.env.STITCH_API_KEY || '${STITCH_API_KEY}';
+const API_KEY = process.env.STITCH_API_KEY;
+if (!API_KEY) {
+  console.error('[stitch-mcp] STITCH_API_KEY env var is required');
+  process.exit(1);
+}
 
 // Lazy-initialized StitchToolClient (the one that actually works)
 let client: StitchToolClient | null = null;
