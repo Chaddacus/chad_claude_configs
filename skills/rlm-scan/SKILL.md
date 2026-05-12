@@ -5,6 +5,7 @@ description: >
   analyze project architecture, find security issues, map codebase structure, understand
   an unfamiliar repo, or search for patterns across a project. Produces a cached index
   auto-loaded on session start so Claude does not re-learn the same codebase every session.
+context: fork
 policy_doc_kind: skill
 classification: canonical
 canonical_owner: self

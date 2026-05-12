@@ -1,6 +1,7 @@
 ---
 name: analyze
 description: Consolidate build observations across sessions, detect patterns, promote rules, and regenerate the chad-memory.md rules file.
+context: fork
 policy_doc_kind: skill
 classification: canonical
 canonical_owner: self
