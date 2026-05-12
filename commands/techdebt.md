@@ -1,5 +1,6 @@
 ---
 description: End-of-session scan for duplication, dead code, stale TODOs, and high-confidence cleanups. Report only — do not edit.
+allowed-tools: Bash, Read, Grep, Glob
 ---
 
 # /techdebt
