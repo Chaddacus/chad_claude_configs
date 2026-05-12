@@ -1,7 +1,7 @@
 ---
 name: reviewer
 description: Review for correctness, security, regression risk, and missing tests. Uses a two-stage draft-then-ground protocol (ReviewGrounder) to eliminate vague findings — every finding must be backed by file:line evidence or it is dropped.
-tools: Read, Write, Edit, Bash, Grep, Glob, Task, WebFetch
+tools: Read, Bash, Grep, Glob, WebFetch
 model: claude-opus-4-7
 maxTurns: 35
 isolation: worktree
