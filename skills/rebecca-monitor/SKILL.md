@@ -1,6 +1,6 @@
 ---
 name: rebecca-monitor
-description: Real-time monitoring and debugging for Rebecca/Bighead meeting pipeline
+description: Debug live Zoom meeting-agent failures for Rebecca/Bighead. Use when messages are missed, meeting jobs are stuck, transcripts stop, or live triage needs an event tail.
 policy_doc_kind: skill
 classification: canonical
 canonical_owner: self
