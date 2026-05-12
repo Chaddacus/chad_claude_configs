@@ -23,6 +23,9 @@
 !/sounds/
 !/mcp-servers/
 !/tests/
+!/rules/
+# rules/legacy-reference is local-only; the rest of rules/ is tracked
+/rules/legacy-reference/
 
 # Custom scripts
 !/bin/
