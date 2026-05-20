@@ -313,6 +313,80 @@ QUESTION_REGISTRY_INLINE: dict[str, Any] = {
 
 
 # ---------------------------------------------------------------------------
+# External question registry loader (Slice 2)
+# ---------------------------------------------------------------------------
+#
+# Default path: ~/.claude/policy/phase_questions.yaml
+# Falls back to QUESTION_REGISTRY_INLINE if the file is missing, unreadable,
+# or fails parse. On load failure we emit a one-shot stderr warning (the
+# inline copy keeps the runtime working). The cache is keyed by (path, mtime).
+#
+# Schema is enforced by ~/.claude/bin/registry_lint.py — not enforced at
+# load time so a malformed external registry can't crash the loop.
+
+PHASE_QUESTIONS_REGISTRY_PATH = Path.home() / ".claude" / "policy" / "phase_questions.yaml"
+
+_REGISTRY_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
+_REGISTRY_LOAD_WARNED: set[str] = set()
+
+
+def _warn_registry_load(path: str, reason: str) -> None:
+    """Stderr-warn once per (path, reason). Never raises."""
+    key = f"{path}|{reason}"
+    if key in _REGISTRY_LOAD_WARNED:
+        return
+    _REGISTRY_LOAD_WARNED.add(key)
+    try:
+        sys.stderr.write(
+            f"[auto_runtime] phase-questions registry load fallback "
+            f"({path}): {reason}\n"
+        )
+    except Exception:
+        pass
+
+
+def load_question_registry(
+    path: Path | str | None = None,
+    *,
+    force: bool = False,
+) -> dict[str, Any]:
+    """Load the external YAML registry; fall back to inline on any error.
+
+    Caches by (path, mtime). Pass force=True to bypass cache (test hook).
+    """
+    p = Path(path) if path is not None else PHASE_QUESTIONS_REGISTRY_PATH
+    key = str(p)
+    try:
+        if not p.exists():
+            _warn_registry_load(key, "file_not_found")
+            return QUESTION_REGISTRY_INLINE
+        mtime = p.stat().st_mtime
+        if not force and key in _REGISTRY_CACHE:
+            cached_mtime, cached_data = _REGISTRY_CACHE[key]
+            if cached_mtime == mtime:
+                return cached_data
+        try:
+            import yaml  # type: ignore
+        except ImportError:
+            _warn_registry_load(key, "pyyaml_unavailable")
+            return QUESTION_REGISTRY_INLINE
+        try:
+            with open(p, "r", encoding="utf-8") as fh:
+                data = yaml.safe_load(fh)
+        except (OSError, yaml.YAMLError) as e:
+            _warn_registry_load(key, f"parse_error:{type(e).__name__}")
+            return QUESTION_REGISTRY_INLINE
+        if not isinstance(data, dict) or "registry_version" not in data:
+            _warn_registry_load(key, "invalid_shape")
+            return QUESTION_REGISTRY_INLINE
+        _REGISTRY_CACHE[key] = (mtime, data)
+        return data
+    except Exception as e:  # noqa: BLE001 — defensive: loader must never raise
+        _warn_registry_load(key, f"unexpected:{type(e).__name__}")
+        return QUESTION_REGISTRY_INLINE
+
+
+# ---------------------------------------------------------------------------
 # Utility helpers
 # ---------------------------------------------------------------------------
 
@@ -526,7 +600,7 @@ def select_phase_questions(
     """
     if route == "R1":
         return []
-    reg = registry if registry is not None else QUESTION_REGISTRY_INLINE
+    reg = registry if registry is not None else load_question_registry()
     selected: list[dict[str, Any]] = []
     if route != "R5":
         phase_block = reg.get("phases", {}).get(phase, {})
