@@ -1261,6 +1261,88 @@ def run_verifier_matrix(
     return summary
 
 
+# Map cycle_track's recommended_action → the phase the loop is moving into
+# when that action runs. Used by _maybe_auto_advance_phase to wire phase
+# advancement into the cycle flow.
+_ACTION_TO_PHASE_INTENT: dict[str, str] = {
+    "dispatch": "build",     # dispatching code work → enter build
+    "evaluate": "verify",    # evaluator run → enter verify
+    "close": "closeout",     # close → enter closeout
+}
+
+
+def _collect_evidence_keys(track_id: str) -> set[str]:
+    """Derive phase-transition evidence keys from the event log.
+
+    The phase transition table requires keys like `repo_facts`, `patch_applied`,
+    `tests_pass`. The cycle flow doesn't directly emit those tags — they're
+    implicit in observable events:
+      - dispatch (inline or governed) implies discovery + design work was done
+        plus the patch surface was opened (patch_applied)
+      - verifier_matrix_completed with transition_allowed=True implies
+        lint/tests passed cleanly (no introduced regressions)
+      - verifier_classified with introduced_failure implies the retry edge
+    """
+    events = _read_events(track_id)
+    ev: set[str] = set()
+    for e in events:
+        et = e.get("event")
+        if et in ("inline_dispatched", "governed_dispatched"):
+            ev.update({
+                "repo_facts", "scope", "constraints",
+                "plan_approved", "owned_files", "validation_plan",
+                "patch_applied",
+            })
+        elif et == "verifier_matrix_completed" and e.get("transition_allowed"):
+            ev.update({"lint_pass", "tests_pass", "no_introduced_regressions"})
+        elif et == "verifier_classified" and e.get("classification") == "introduced_failure":
+            ev.add("introduced_failure")
+    return ev
+
+
+def _maybe_auto_advance_phase(
+    track_id: str,
+    *,
+    target_phase: str | None,
+    route: str,
+    cwd: str,
+    owned_files: list[str] | None,
+    shadow: bool = False,
+) -> list[dict[str, Any]]:
+    """Walk phase transitions toward target_phase using collected evidence.
+
+    Returns a list of decisions (one per attempted transition). Stops at the
+    first blocked transition. Returns [] if target_phase is None, cwd missing,
+    or already at/past target.
+    """
+    if not target_phase or not cwd:
+        return []
+    phase_order = list(PHASE_ENUM)
+    if target_phase not in phase_order:
+        return []
+    decisions: list[dict[str, Any]] = []
+    # Cap iterations at len(PHASE_ENUM) to prevent any pathological loop.
+    for _ in range(len(phase_order)):
+        current = current_phase(_read_events(track_id))
+        if current == target_phase:
+            break
+        cur_idx = phase_order.index(current)
+        tgt_idx = phase_order.index(target_phase)
+        if cur_idx >= tgt_idx:
+            break  # don't walk backward
+        next_phase = phase_order[cur_idx + 1]
+        decision = attempt_phase_transition(
+            track_id, to_phase=next_phase, route=route,
+            cwd=cwd, owned_files=owned_files,
+            evidence_keys=_collect_evidence_keys(track_id),
+            shadow=shadow,
+        )
+        decisions.append(decision)
+        if not decision["allowed"]:
+            break
+    return decisions
+
+
 def attempt_phase_transition(
     track_id: str,
     *,
@@ -3486,6 +3568,24 @@ def cycle_track(
                     "kind": kind, "changed": event["changed"],
                     "triggered_by_question_id": q["id"],
                 })
+
+        # Slice 3-wire: auto-advance phase based on the action just executed.
+        # Synthesizes evidence keys from observable events and walks the
+        # phase chain toward the intent target. Transitions that fail the
+        # phase-guard or verifier matrix are recorded (phase_transition_blocked)
+        # and the walk stops; nothing throws.
+        cwd_for_advance = policy.get("hard_policy", {}).get("cwd", "")
+        target_intent = _ACTION_TO_PHASE_INTENT.get(action)
+        if target_intent and cwd_for_advance:
+            _maybe_auto_advance_phase(
+                track_id,
+                target_phase=target_intent,
+                route=route_id,
+                cwd=cwd_for_advance,
+                owned_files=[],  # track-level; slice-level owned scope
+                                  # would be a follow-up enhancement
+                shadow=shadow,
+            )
 
         # Slice 1b: cycle_summary event (additive to cycle_completed).
         # Token / wall-clock counts come from Claude Code layer; null here.
