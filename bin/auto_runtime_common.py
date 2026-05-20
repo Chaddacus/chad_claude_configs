@@ -97,6 +97,10 @@ REPLAYABLE_EVENTS = {
     "evaluator_dispatched",
     "evaluator_verdict",
     "phase_changed",
+    "question_selection",
+    "decision_record",
+    "cycle_summary",
+    "track_summary",
 }
 AUDIT_ONLY_EVENTS = {
     "frontier_refreshed",
@@ -181,6 +185,64 @@ ROUTE_CHANGE_SPECIAL_CASES: dict[tuple[str, str], dict[str, Any]] = {
         "required_backfill": ["scope", "owned_files", "validation_plan",
                               "threat_model", "security_review"],
         "dispatch": "PAUSE",
+    },
+}
+
+
+# ---------------------------------------------------------------------------
+# Question registry + decision_record (Slice 1b)
+# Plan ref: ~/.codex-spar/stage-aware-orchestrator-loop/plan-final.md §3
+# Inline map; YAML externalization in Slice 2.
+# Observable decision_kinds only (per Slice 1b grounding):
+#   phase, route, next_action, owned_files
+# ---------------------------------------------------------------------------
+
+# decision_kind enum restricted to observable kinds.
+# Adding scope/validation_plan/tool_invocation requires state plumbing —
+# separate proposal, see plan-final §3 + Slice 1b grounding notes.
+OBSERVABLE_DECISION_KINDS = ("phase", "route", "next_action", "owned_files")
+
+QUESTION_REGISTRY_INLINE: dict[str, Any] = {
+    "registry_version": "inline-slice-1b",
+    "phases": {
+        "discovery": {
+            "questions": [
+                {
+                    "id": "prior_art",
+                    "question": "How do existing components in this repo solve this?",
+                    "any_evidence_required": ["repo_search", "memory_lookup"],
+                    "targets_decision_kind": "next_action",
+                    "skip_when": {"route_in": ["R1"]},
+                },
+            ],
+        },
+        "build": {
+            "questions": [
+                {
+                    "id": "simplest_path",
+                    "question": "Is this still the simplest path?",
+                    "any_evidence_required": ["repo_search"],
+                    "targets_decision_kind": "owned_files",
+                    "skip_when": {"route_in": ["R1"]},
+                },
+            ],
+        },
+    },
+    "loop_invariant": {
+        "triggers": {
+            "event_count_since_last": 5,
+            "on_route_promotion": True,
+        },
+        "max_invariant_tokens": 400,
+        "questions": [
+            {
+                "id": "premise_check",
+                "question": "Did anything we just learned invalidate the plan?",
+                "any_evidence_required": ["memory_lookup", "event_log_diff"],
+                "targets_decision_kind": "next_action",
+                "skip_when": {"route_in": ["R1"]},
+            },
+        ],
     },
 }
 
@@ -291,6 +353,250 @@ def current_phase(events: list[dict[str, Any]]) -> str:
         if to_phase in PHASE_ENUM:
             return to_phase
     return PHASE_INITIAL
+
+
+# ---------------------------------------------------------------------------
+# Decision record canonical state (Slice 1b)
+# ---------------------------------------------------------------------------
+
+def canonical_state(kind: str, source: Any) -> Any:
+    """Return the canonical state payload for a decision kind.
+
+    Observable kinds only. Raises for non-observable kinds — those
+    require state plumbing not in Slice 1b's scope.
+    """
+    if kind == "phase":
+        return source if source in PHASE_ENUM else None
+    if kind == "route":
+        return source if source in ROUTE_STRICTNESS or source == "R5" else None
+    if kind == "next_action":
+        if source is None:
+            return None
+        return {
+            "action_kind": source.get("action_kind", ""),
+            "target_ref": source.get("target_ref", ""),
+        }
+    if kind == "owned_files":
+        if source is None:
+            return []
+        return sorted(source) if isinstance(source, (list, tuple, set)) else []
+    raise ValueError(f"non-observable decision_kind: {kind!r}; observable: {OBSERVABLE_DECISION_KINDS}")
+
+
+def state_hash(state: Any) -> str:
+    """SHA-256 of canonical JSON payload."""
+    return hashlib.sha256(
+        json.dumps(state, sort_keys=True, default=str).encode()
+    ).hexdigest()
+
+
+def _append_decision_record(
+    track_id: str,
+    *,
+    decision_kind: str,
+    before_state: Any,
+    after_state: Any,
+    evidence_refs: list[str] | None = None,
+    triggered_by_question_id: str | None = None,
+    no_change_reason: str | None = None,
+) -> dict[str, Any]:
+    """Emit a decision_record event with canonical-state hashes.
+
+    Returns the emitted event dict (for test inspection).
+    Validates: changed=False requires no_change_reason when a question
+    targeted this decision (per plan-final §3 disposition validity).
+    """
+    if decision_kind not in OBSERVABLE_DECISION_KINDS:
+        raise ValueError(
+            f"non-observable decision_kind: {decision_kind!r}"
+        )
+    bhash = state_hash(before_state)
+    ahash = state_hash(after_state)
+    changed = bhash != ahash
+    # Disposition validity: question fired AND changed=False => must explain.
+    if (not changed) and triggered_by_question_id and not no_change_reason:
+        raise ValueError(
+            "decision_record with changed=False and a triggering question "
+            "must include no_change_reason (plan-final §3)"
+        )
+    event = {
+        "event": "decision_record",
+        "decision_kind": decision_kind,
+        "before_state": before_state,
+        "after_state": after_state,
+        "before_state_hash": bhash,
+        "after_state_hash": ahash,
+        "changed": changed,
+        "no_change_reason": no_change_reason,
+        "triggered_by_question_id": triggered_by_question_id,
+        "evidence_refs": evidence_refs or [],
+    }
+    _append_event(track_id, event)
+    return event
+
+
+# ---------------------------------------------------------------------------
+# Question selection (Slice 1b)
+# ---------------------------------------------------------------------------
+
+def _question_applies(question: dict[str, Any], route: str) -> bool:
+    """Apply skip_when.route_in filter."""
+    skip_when = question.get("skip_when", {}) or {}
+    if route in (skip_when.get("route_in") or []):
+        return False
+    return True
+
+
+def select_phase_questions(
+    phase: str,
+    route: str,
+    *,
+    registry: dict[str, Any] | None = None,
+    fire_invariant: bool = True,
+) -> list[dict[str, Any]]:
+    """Select questions applicable to (phase, route).
+
+    R1 bypasses entirely. R5 (unresolved) gets only loop_invariant questions
+    that don't skip on R5.
+    """
+    if route == "R1":
+        return []
+    reg = registry if registry is not None else QUESTION_REGISTRY_INLINE
+    selected: list[dict[str, Any]] = []
+    if route != "R5":
+        phase_block = reg.get("phases", {}).get(phase, {})
+        for q in phase_block.get("questions", []):
+            if _question_applies(q, route):
+                selected.append(q)
+    if fire_invariant:
+        inv_block = reg.get("loop_invariant", {})
+        for q in inv_block.get("questions", []):
+            if _question_applies(q, route):
+                selected.append(q)
+    return selected
+
+
+def _append_question_selection(
+    track_id: str,
+    *,
+    phase: str,
+    route: str,
+    questions: list[dict[str, Any]],
+    trigger: str = "cycle_start",
+) -> None:
+    """Emit a question_selection event recording what was asked this cycle."""
+    _append_event(track_id, {
+        "event": "question_selection",
+        "phase": phase,
+        "route": route,
+        "trigger": trigger,
+        "question_ids": [q["id"] for q in questions],
+        "targets_decision_kinds": sorted({
+            q.get("targets_decision_kind") for q in questions
+            if q.get("targets_decision_kind")
+        }),
+    })
+
+
+def _capture_observable_states(
+    track_id: str,
+    state: dict[str, Any],
+    *,
+    anticipation: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Capture current values for the 4 observable decision kinds.
+
+    Used to compute before/after deltas in decision_record events.
+    `anticipation` provides next_action data when available (post-anticipate).
+    """
+    events = _read_events(track_id)
+    policy = state.get("views", {}).get("policy", {})
+    graph = state.get("views", {}).get("graph", {})
+    frontier = state.get("views", {}).get("frontier", {})
+
+    # Find focus node = anticipation's slice OR frontier's next_slice_id
+    focus_slice_id = None
+    if anticipation:
+        ed = anticipation.get("evaluator_dispatch", {}) or {}
+        focus_slice_id = ed.get("slice_id")
+    if not focus_slice_id:
+        focus_slice_id = frontier.get("next_slice_id")
+    focus_node = (graph.get("nodes") or {}).get(focus_slice_id, {}) if focus_slice_id else {}
+
+    next_action_source = None
+    if anticipation:
+        next_action_source = {
+            "action_kind": anticipation.get("recommended_action", ""),
+            "target_ref": focus_slice_id or "",
+        }
+
+    return {
+        "phase": canonical_state("phase", current_phase(events)),
+        "route": canonical_state("route", policy.get("hard_policy", {}).get("route_id", "")),
+        "next_action": canonical_state("next_action", next_action_source),
+        "owned_files": canonical_state("owned_files", focus_node.get("owned_scope", [])),
+    }
+
+
+def _emit_cycle_summary(
+    track_id: str,
+    *,
+    cycle_idx: int,
+    route: str,
+    recommended_action: str,
+    action_status: str,
+    questions_fired: list[str] | None = None,
+    decisions_recorded: list[dict[str, Any]] | None = None,
+    phase_at_start: str | None = None,
+    phase_at_end: str | None = None,
+) -> None:
+    """Emit cycle_summary event for Layer-2 validation (plan-final §7).
+
+    Token/wall-clock counts come from the Claude Code layer; this layer
+    cannot observe them, so they remain null. analyze.py merges in any
+    upstream-supplied measurements at validation time.
+    """
+    _append_event(track_id, {
+        "event": "cycle_summary",
+        "cycle": cycle_idx,
+        "route": route,
+        "phase_at_start": phase_at_start,
+        "phase_at_end": phase_at_end,
+        "questions_fired": questions_fired or [],
+        "decisions_recorded": decisions_recorded or [],
+        "recommended_action": recommended_action,
+        "action_status": action_status,
+        "tokens_in": None,        # supplied by Claude Code layer
+        "tokens_out": None,
+        "wall_clock_ms": None,
+    })
+
+
+def _emit_track_summary(track_id: str, *, closure_state: str) -> None:
+    """Emit track_summary event at track close (plan-final §7)."""
+    events = _read_events(track_id)
+    phases_visited: list[str] = []
+    for e in events:
+        if e.get("event") == "phase_changed":
+            tp = e.get("to_phase")
+            if tp in PHASE_ENUM and (not phases_visited or phases_visited[-1] != tp):
+                phases_visited.append(tp)
+    question_events = [e for e in events if e.get("event") == "question_selection"]
+    decision_events = [e for e in events if e.get("event") == "decision_record"]
+    cycle_events = [e for e in events if e.get("event") == "cycle_summary"]
+    distinct_kinds_changed = sorted({
+        e.get("decision_kind") for e in decision_events
+        if e.get("changed") and e.get("decision_kind")
+    })
+    _append_event(track_id, {
+        "event": "track_summary",
+        "closure_state": closure_state,
+        "cycle_count": len(cycle_events),
+        "phases_visited": phases_visited,
+        "question_selection_count": len(question_events),
+        "decision_record_count": len(decision_events),
+        "decision_kinds_changed": distinct_kinds_changed,
+    })
 
 
 # ---------------------------------------------------------------------------
@@ -2252,6 +2558,20 @@ def cycle_track(
         # Reconcile
         reconcile_result = reconcile_track(track_id, dry_run=dry_run)
 
+        # Slice 1b: phase + route observable at cycle start.
+        route_id = policy.get("hard_policy", {}).get("route_id", "")
+        phase_at_start = current_phase(_read_events(track_id))
+
+        # Slice 1b: question selection (R1 bypassed inside selector).
+        selected_questions = select_phase_questions(phase_at_start, route_id)
+        if not dry_run and selected_questions:
+            _append_question_selection(
+                track_id,
+                phase=phase_at_start,
+                route=route_id,
+                questions=selected_questions,
+            )
+
         # Anticipate
         anticipation = _build_anticipation(
             track_id=track_id,
@@ -2260,6 +2580,12 @@ def cycle_track(
             governance=governance,
             maintenance=maintenance,
         )
+
+        # Slice 1b: capture before-state for observable kinds (post-anticipate
+        # so next_action source has its target_ref; pre-action so we can diff).
+        before_states = _capture_observable_states(
+            track_id, state, anticipation=anticipation,
+        ) if not dry_run else None
 
         action = anticipation["recommended_action"]
         action_result = {"action": action, "status": "planned" if dry_run else "pending"}
@@ -2322,6 +2648,67 @@ def cycle_track(
             "recommended_action": action,
             "action_status": action_result["status"],
         })
+
+        # Slice 1b: post-action decision_record emission for selected questions.
+        # Re-load state to pick up any mutations from the action.
+        decisions_recorded: list[dict[str, Any]] = []
+        if before_states is not None:
+            state_after = _load_json(td / "objective.state.json")
+            # Anticipation values represent the action just dispatched, so
+            # next_action's after-state equals the pre-state for this slice
+            # (the action has been launched, not re-anticipated). Capture
+            # what's observable now.
+            after_states = _capture_observable_states(
+                track_id, state_after, anticipation=anticipation,
+            )
+            # For each selected question with a targets_decision_kind, emit
+            # a decision_record. Auto-generate no_change_reason when unchanged.
+            for q in selected_questions:
+                kind = q.get("targets_decision_kind")
+                if kind not in OBSERVABLE_DECISION_KINDS:
+                    continue
+                before = before_states[kind]
+                after = after_states[kind]
+                changed = state_hash(before) != state_hash(after)
+                no_change_reason = (
+                    None if changed
+                    else f"state_unchanged_after_{action}"
+                )
+                event = _append_decision_record(
+                    track_id,
+                    decision_kind=kind,
+                    before_state=before,
+                    after_state=after,
+                    triggered_by_question_id=q["id"],
+                    no_change_reason=no_change_reason,
+                )
+                decisions_recorded.append({
+                    "kind": kind, "changed": event["changed"],
+                    "triggered_by_question_id": q["id"],
+                })
+
+        # Slice 1b: cycle_summary event (additive to cycle_completed).
+        # Token / wall-clock counts come from Claude Code layer; null here.
+        phase_at_end = current_phase(_read_events(track_id))
+        _emit_cycle_summary(
+            track_id,
+            cycle_idx=cycle_idx,
+            route=route_id,
+            recommended_action=action,
+            action_status=action_result["status"],
+            questions_fired=[q["id"] for q in selected_questions],
+            decisions_recorded=decisions_recorded,
+            phase_at_start=phase_at_start,
+            phase_at_end=phase_at_end,
+        )
+
+        # Slice 1b: track_summary on close.
+        if action_result["status"] == "closed":
+            closure = action_result.get("closure", {})
+            _emit_track_summary(
+                track_id,
+                closure_state=closure.get("closure_state", "closed"),
+            )
 
         cycles.append({
             "cycle": cycle_idx,
