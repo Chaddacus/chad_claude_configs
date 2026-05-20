@@ -40,6 +40,8 @@ Each line of `phase_loop_corpus.jsonl` is one fixture object:
 - `expected_route`: what `classify_route()` should return. Tested in regression suite.
 - `expected_phase_path`: ordered list of `phase_changed` event `to_phase` values expected to appear in the event log. Empty list means no phase machinery should fire (R1 bypass + R5-unresolved).
 - `expected_decisions`: per-kind `decision_record` expectations. Used by Slice 1b ship gate. `expected_changed=true` means `before_state_hash != after_state_hash` per the canonical state payload. `expected_changed=false` requires `no_change_reason` to be present (matches `expected_no_change_reason_regex` if provided).
+
+  **Observable decision kinds (Slice 1b scope):** `phase`, `route`, `next_action`, `owned_files`. The plan-final §3 schema also lists `scope`, `validation_plan`, and `tool_invocation` — these require state plumbing not present in `auto_runtime_common.py` and are deferred to a future slice. Fixtures only reference the 4 observable kinds. When state plumbing for the missing kinds lands, fixtures may be amended (APPEND new expected_decisions entries; existing entries stay frozen once baseline captured).
 - `budget`: hard caps; track aborts if exceeded.
 - `expected_acceptance_signature`: how to recognize success at closeout. Used by H-δ acceptance-rate measurement.
 - `baseline_event_log_path`: filled in by `analyze.py baseline-capture` (Slice V). `null` at fixture authoring time.
