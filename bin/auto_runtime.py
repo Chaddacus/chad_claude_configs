@@ -35,6 +35,7 @@ def cmd_init(args: argparse.Namespace) -> None:
         mode=args.mode or "default",
         route_override=args.route,
         include_memory=not args.no_memory,
+        invoker=args.invoker,
     )
     json.dump(result, sys.stdout, indent=2, default=str)
     print()
@@ -53,6 +54,7 @@ def cmd_cycle(args: argparse.Namespace) -> None:
             args.track_id,
             max_cycles=args.max_cycles,
             dry_run=args.dry_run,
+            shadow=getattr(args, "shadow", False),
         )
     json.dump(result, sys.stdout, indent=2, default=str)
     print()
@@ -165,6 +167,7 @@ def main() -> None:
     p.add_argument("--route", choices=["R1", "R2", "R3", "R4", "R5"])
     p.add_argument("--mode", default="default")
     p.add_argument("--no-memory", action="store_true")
+    p.add_argument("--invoker", help="Slash-command name that triggered this track (e.g., 'drive', 'build'); recorded for orchestration audits")
     p.set_defaults(func=cmd_init)
 
     # preflight
@@ -179,6 +182,10 @@ def main() -> None:
     p.add_argument("--track-id", required=True)
     p.add_argument("--max-cycles", type=int, default=1)
     p.add_argument("--dry-run", action="store_true")
+    p.add_argument(
+        "--shadow", action="store_true",
+        help="Record would-be decisions without executing them (Layer-3 validation)",
+    )
     p.set_defaults(func=cmd_cycle)
 
     # dispatch

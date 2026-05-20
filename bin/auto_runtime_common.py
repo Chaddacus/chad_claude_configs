@@ -103,6 +103,12 @@ REPLAYABLE_EVENTS = {
     "track_summary",
     "baseline_captured",
     "baseline_unavailable",
+    "verifier_matrix_started",
+    "verifier_run",
+    "verifier_classified",
+    "verifier_matrix_completed",
+    "phase_transition_blocked",
+    "shadow_decision",
 }
 AUDIT_ONLY_EVENTS = {
     "frontier_refreshed",
@@ -963,6 +969,403 @@ def _emit_track_summary(track_id: str, *, closure_state: str) -> None:
         "decision_record_count": len(decision_events),
         "decision_kinds_changed": distinct_kinds_changed,
     })
+
+
+# ---------------------------------------------------------------------------
+# Slice 3 — phase-aware verifier matrix + baseline consumer + transition gate
+# ---------------------------------------------------------------------------
+#
+# The matrix declares which verifier commands are `required` vs `advisory`
+# per (route, transition). A transition's matrix is the union across keys
+# matched from most-specific (route, from→to) to most-generic (route, "*").
+# Missing entries default to no verifiers (R1, R5-unresolved).
+#
+# Required + introduced_failure  → blocks transition (fail-closed).
+# Required + unknown_failure     → policy decides per UNKNOWN_FAILURE_POLICY_BY_ROUTE.
+# Required + preexisting_failure → does NOT block (baseline says it was already broken).
+# Advisory                       → never blocks; recorded for postmortem.
+
+VERIFIER_MATRIX: dict[str, dict[str, dict[str, str]]] = {
+    # Route → transition-key → command_id → "required"|"advisory"
+    "R2": {
+        "build->verify": {
+            "ruff_check": "required",
+            "pytest_smoke": "advisory",
+            "eslint_check": "advisory",
+            "tsc_noemit": "advisory",
+            "mypy_check": "advisory",
+        },
+        "verify->closeout": {
+            "pytest_smoke": "required",
+            "ruff_check": "advisory",
+        },
+    },
+    "R3": {
+        "build->verify": {
+            "ruff_check": "required",
+            "pytest_smoke": "required",
+            "eslint_check": "required",
+            "tsc_noemit": "required",
+            "mypy_check": "advisory",
+        },
+        "verify->closeout": {
+            "pytest_smoke": "required",
+            "ruff_check": "required",
+            "eslint_check": "required",
+            "tsc_noemit": "required",
+        },
+    },
+    "R4": {
+        "build->verify": {
+            "ruff_check": "required",
+            "pytest_smoke": "required",
+            "eslint_check": "required",
+            "tsc_noemit": "required",
+            "mypy_check": "required",
+        },
+        "verify->closeout": {
+            "ruff_check": "required",
+            "pytest_smoke": "required",
+            "eslint_check": "required",
+            "tsc_noemit": "required",
+            "mypy_check": "required",
+        },
+    },
+    # R1 + R5: empty — no verifier matrix runs.
+}
+
+# Per-route total transition-time budget. Distinct from BASELINE_BUDGET_MS_BY_ROUTE.
+VERIFIER_MATRIX_BUDGET_MS_BY_ROUTE: dict[str, int] = {
+    "R1": 0,
+    "R2": 5000,
+    "R3": 30000,
+    "R4": 120000,
+    "R5": 0,
+}
+
+# Per-route policy for unknown_failure on required verifiers (plan-final §2).
+# R2 = advisory (do not block); R3/R4 = block (fail-closed).
+UNKNOWN_FAILURE_POLICY_BY_ROUTE: dict[str, str] = {
+    "R1": "advisory",
+    "R2": "advisory",
+    "R3": "block",
+    "R4": "block",
+    "R5": "advisory",
+}
+
+VERIFIER_RESULT_CLASS = (
+    "pass",
+    "introduced_failure",
+    "preexisting_failure",
+    "unknown_failure",
+)
+
+
+def matrix_for_transition(route: str, from_phase: str, to_phase: str) -> dict[str, str]:
+    """Return the {command_id: requiredness} map for this (route, transition).
+
+    Empty dict means no verifiers run for this cell.
+    """
+    route_block = VERIFIER_MATRIX.get(route, {})
+    key = f"{from_phase}->{to_phase}"
+    return dict(route_block.get(key, {}))
+
+
+def _load_baseline(
+    track_id: str,
+    *,
+    route: str,
+    command_id: str,
+    owned_files_hash: str,
+    base_git_sha: str,
+) -> dict[str, Any] | None:
+    """Load a previously-captured baseline record by exact key match."""
+    if not base_git_sha:
+        return None
+    key = _baseline_key(
+        track_id=track_id, route=route, command_id=command_id,
+        owned_files_hash=owned_files_hash, base_git_sha=base_git_sha,
+    )
+    path = track_dir(track_id) / "baselines" / f"{key}.json"
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def classify_verifier_result(current_status: str, baseline_status: str | None) -> str:
+    """Compare a fresh verifier run to its baseline.
+
+    Truth table:
+      baseline    | current                  | classification
+      ----------- | ------------------------ | ------------------
+      None        | any                      | unknown_failure (only if current != pass)
+      None        | pass                     | pass
+      pass        | pass                     | pass
+      pass        | preexisting_failure/etc  | introduced_failure
+      preexisting | pass                     | pass (fixed!)
+      preexisting | preexisting_failure      | preexisting_failure
+      timeout/etc | any non-pass             | unknown_failure
+      any         | infra_error              | unknown_failure
+      any         | timeout/budget_exhausted | unknown_failure
+    """
+    if current_status == "pass":
+        return "pass"
+    # current is some kind of failure/non-pass
+    if current_status in ("infra_error", "timeout", "budget_exhausted"):
+        return "unknown_failure"
+    if baseline_status is None:
+        return "unknown_failure"
+    if baseline_status == "pass":
+        return "introduced_failure"
+    if baseline_status == "preexisting_failure":
+        return "preexisting_failure"
+    # baseline was infra_error/timeout/etc — can't compare
+    return "unknown_failure"
+
+
+def run_verifier_matrix(
+    track_id: str,
+    *,
+    cwd: str,
+    route: str,
+    from_phase: str,
+    to_phase: str,
+    owned_files: list[str] | None,
+    shadow: bool = False,
+) -> dict[str, Any]:
+    """Run verifiers required/advisory for this transition; classify vs baseline.
+
+    Returns:
+      {
+        "transition_allowed": bool,
+        "block_reasons": [{"command_id", "classification", "requiredness"}],
+        "results": [{command_id, requiredness, current_status, classification, duration_ms}],
+        "budget_ms_total": int, "budget_ms_used": int,
+        "shadow": bool,
+      }
+    """
+    matrix = matrix_for_transition(route, from_phase, to_phase)
+    summary = {
+        "transition_allowed": True,
+        "block_reasons": [],
+        "results": [],
+        "budget_ms_total": VERIFIER_MATRIX_BUDGET_MS_BY_ROUTE.get(route, 0),
+        "budget_ms_used": 0,
+        "shadow": shadow,
+    }
+    if not matrix:
+        return summary
+
+    budget = VERIFIER_MATRIX_BUDGET_MS_BY_ROUTE.get(route, 0)
+    if budget <= 0:
+        return summary
+
+    _append_event(track_id, {
+        "event": "verifier_matrix_started",
+        "route": route, "from_phase": from_phase, "to_phase": to_phase,
+        "command_ids": sorted(matrix.keys()),
+        "shadow": shadow,
+    })
+
+    applicable_in_repo = set(_detect_applicable_verifiers(cwd))
+    base_git_sha = _get_base_git_sha(cwd) or ""
+    owned_files_hash = _owned_files_hash(owned_files)
+    unknown_policy = UNKNOWN_FAILURE_POLICY_BY_ROUTE.get(route, "advisory")
+
+    budget_used_ms = 0
+    for command_id, requiredness in matrix.items():
+        # Skip commands the project doesn't actually have markers for.
+        if command_id not in applicable_in_repo:
+            summary["results"].append({
+                "command_id": command_id, "requiredness": requiredness,
+                "current_status": "not_applicable",
+                "classification": "pass",  # not applicable → can't block
+                "duration_ms": 0,
+            })
+            _append_event(track_id, {
+                "event": "verifier_classified",
+                "command_id": command_id, "requiredness": requiredness,
+                "current_status": "not_applicable", "classification": "pass",
+                "shadow": shadow,
+            })
+            continue
+
+        remaining = budget - budget_used_ms
+        if remaining <= 0:
+            current_status = "budget_exhausted"
+        else:
+            run_result = _capture_baseline_command(
+                command_id=command_id, cwd=cwd, remaining_budget_ms=remaining,
+            )
+            current_status = run_result["status"]
+            budget_used_ms += run_result["duration_ms"]
+            _append_event(track_id, {
+                "event": "verifier_run",
+                "command_id": command_id, "requiredness": requiredness,
+                "status": current_status, "duration_ms": run_result["duration_ms"],
+                "shadow": shadow,
+            })
+
+        baseline = _load_baseline(
+            track_id, route=route, command_id=command_id,
+            owned_files_hash=owned_files_hash, base_git_sha=base_git_sha,
+        )
+        classification = classify_verifier_result(
+            current_status, baseline["status"] if baseline else None,
+        )
+        result_entry = {
+            "command_id": command_id, "requiredness": requiredness,
+            "current_status": current_status, "classification": classification,
+            "duration_ms": 0 if remaining <= 0 else run_result["duration_ms"],
+        }
+        summary["results"].append(result_entry)
+        _append_event(track_id, {
+            "event": "verifier_classified",
+            "command_id": command_id, "requiredness": requiredness,
+            "current_status": current_status, "classification": classification,
+            "baseline_present": baseline is not None,
+            "shadow": shadow,
+        })
+
+        # Blocking decision: only `required` verifiers can block.
+        if requiredness != "required":
+            continue
+        if classification == "introduced_failure":
+            summary["transition_allowed"] = False
+            summary["block_reasons"].append({
+                "command_id": command_id,
+                "classification": classification,
+                "requiredness": requiredness,
+            })
+        elif classification == "unknown_failure" and unknown_policy == "block":
+            summary["transition_allowed"] = False
+            summary["block_reasons"].append({
+                "command_id": command_id,
+                "classification": classification,
+                "requiredness": requiredness,
+                "policy": "block_on_unknown",
+            })
+
+    summary["budget_ms_used"] = budget_used_ms
+    _append_event(track_id, {
+        "event": "verifier_matrix_completed",
+        "transition_allowed": summary["transition_allowed"],
+        "block_reasons": summary["block_reasons"],
+        "budget_ms_used": budget_used_ms,
+        "budget_ms_total": budget,
+        "shadow": shadow,
+    })
+    return summary
+
+
+def attempt_phase_transition(
+    track_id: str,
+    *,
+    to_phase: str,
+    route: str,
+    cwd: str,
+    owned_files: list[str] | None,
+    evidence_keys: set[str] | None = None,
+    shadow: bool = False,
+) -> dict[str, Any]:
+    """Public entry point: try to transition to `to_phase`.
+
+    Steps:
+      1. Compute current phase via fold over events.
+      2. Check phase_transition_allowed (Slice 1a guard on enum + evidence).
+      3. Run the verifier matrix for (route, from→to).
+      4. If transition is allowed AND matrix doesn't block → emit phase_changed
+         (live mode only). In shadow mode emit shadow_decision with the
+         would-have-been transition + verifier summary; do NOT emit phase_changed.
+
+    Returns the full decision dict for the caller.
+    """
+    events = _read_events(track_id)
+    from_phase = current_phase(events)
+    evidence = evidence_keys or set()
+
+    guard = phase_transition_allowed(from_phase, to_phase, route, evidence)
+    if not guard["allowed"]:
+        decision = {
+            "allowed": False,
+            "from_phase": from_phase, "to_phase": to_phase,
+            "reason": guard.get("reason", "transition_not_allowed"),
+            "missing_evidence": guard.get("missing_evidence", []),
+            "verifier_summary": None,
+            "shadow": shadow,
+        }
+        if shadow:
+            _append_event(track_id, {
+                "event": "shadow_decision",
+                "decision_kind": "phase_transition",
+                "would_emit_phase_changed": False,
+                "from_phase": from_phase, "to_phase": to_phase,
+                "reason": decision["reason"],
+            })
+        else:
+            _append_event(track_id, {
+                "event": "phase_transition_blocked",
+                "from_phase": from_phase, "to_phase": to_phase,
+                "reason": decision["reason"],
+                "missing_evidence": decision["missing_evidence"],
+            })
+        return decision
+
+    matrix_summary = run_verifier_matrix(
+        track_id, cwd=cwd, route=route,
+        from_phase=from_phase, to_phase=to_phase,
+        owned_files=owned_files, shadow=shadow,
+    )
+
+    if not matrix_summary["transition_allowed"]:
+        decision = {
+            "allowed": False,
+            "from_phase": from_phase, "to_phase": to_phase,
+            "reason": "verifier_matrix_blocked",
+            "verifier_summary": matrix_summary,
+            "shadow": shadow,
+        }
+        if shadow:
+            _append_event(track_id, {
+                "event": "shadow_decision",
+                "decision_kind": "phase_transition",
+                "would_emit_phase_changed": False,
+                "from_phase": from_phase, "to_phase": to_phase,
+                "reason": "verifier_matrix_blocked",
+                "block_reasons": matrix_summary["block_reasons"],
+            })
+        else:
+            _append_event(track_id, {
+                "event": "phase_transition_blocked",
+                "from_phase": from_phase, "to_phase": to_phase,
+                "reason": "verifier_matrix_blocked",
+                "block_reasons": matrix_summary["block_reasons"],
+            })
+        return decision
+
+    decision = {
+        "allowed": True,
+        "from_phase": from_phase, "to_phase": to_phase,
+        "verifier_summary": matrix_summary,
+        "shadow": shadow,
+    }
+    if shadow:
+        _append_event(track_id, {
+            "event": "shadow_decision",
+            "decision_kind": "phase_transition",
+            "would_emit_phase_changed": True,
+            "from_phase": from_phase, "to_phase": to_phase,
+            "verifier_budget_ms_used": matrix_summary["budget_ms_used"],
+        })
+    else:
+        _append_phase_event(
+            track_id, from_phase=from_phase, to_phase=to_phase,
+            evidence=sorted(evidence),
+        )
+    return decision
 
 
 # ---------------------------------------------------------------------------
@@ -2928,9 +3331,21 @@ def cycle_track(
     *,
     max_cycles: int = 1,
     dry_run: bool = False,
+    shadow: bool = False,
 ) -> dict[str, Any]:
-    """Run one or more cycle iterations on a track."""
+    """Run one or more cycle iterations on a track.
+
+    shadow=True (Slice 3): emit shadow_decision events for would-be actions
+    instead of dispatching them. Layer-3 validation (analyze.py
+    shadow-compare) consumes the resulting event log.
+    """
     cycles = []
+    if shadow and not dry_run:
+        _append_event(track_id, {
+            "event": "shadow_decision",
+            "decision_kind": "cycle_session_started",
+            "max_cycles": max_cycles,
+        })
 
     for cycle_idx in range(max_cycles):
         td = track_dir(track_id)
