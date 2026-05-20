@@ -45,6 +45,11 @@
 !/plugins/installed_plugins.json
 !/plugins/blocklist.json
 
+# Policy — versioned policy/registry artifacts (pre-registered hypotheses,
+# phase question registry, etc.). Tracked fully because changes here are
+# binding architectural decisions.
+!/policy/
+
 # ====================================================================
 # Paranoid denies (catch anything sneaked into tracked dirs)
 # ====================================================================
