@@ -96,6 +96,7 @@ REPLAYABLE_EVENTS = {
     "wake_ceremony_completed",
     "evaluator_dispatched",
     "evaluator_verdict",
+    "phase_changed",
 }
 AUDIT_ONLY_EVENTS = {
     "frontier_refreshed",
@@ -123,6 +124,65 @@ UI_FILE_EXTENSIONS = {
 
 PREFLIGHT_WARN_SCORE_MAX = 74
 PREFLIGHT_BLOCK_SCORE_MAX = 59
+
+
+# ---------------------------------------------------------------------------
+# Phase register (stage-aware orchestrator loop — Slice 1a)
+# Plan ref: ~/.codex-spar/stage-aware-orchestrator-loop/plan-final.md §1
+# ---------------------------------------------------------------------------
+
+PHASE_ENUM = ("discovery", "design", "build", "verify", "closeout")
+PHASE_INITIAL = "discovery"
+
+# Monotonic phase transitions only (plan-final §1, post-v3 revision).
+# verify -> build is a bounded retry edge, NOT a phase regression.
+# Each entry: (from, to) -> required_evidence_keys
+PHASE_TRANSITION_TABLE: dict[tuple[str, str], frozenset[str]] = {
+    ("discovery", "design"):  frozenset({"repo_facts", "scope", "constraints"}),
+    ("design", "build"):      frozenset({"plan_approved", "owned_files", "validation_plan"}),
+    ("build", "verify"):      frozenset({"patch_applied", "lint_pass"}),
+    ("verify", "closeout"):   frozenset({"tests_pass", "no_introduced_regressions"}),
+    ("verify", "build"):      frozenset({"introduced_failure"}),  # retry edge
+}
+PHASE_RETRY_BUDGET = {("verify", "build"): 3}
+
+# Route strictness ordering for the generic stricter-route rule (plan-final §1).
+# R5 is unordered until resolved; handled by special-case rows.
+ROUTE_STRICTNESS = {"R1": 1, "R2": 2, "R3": 3, "R4": 4}
+
+# Required-evidence sets per route (used by route-change reconciliation).
+# A phase's required evidence is its inbound transition's required set,
+# plus any route-level requirements stacked on top.
+ROUTE_REQUIRED_EVIDENCE = {
+    "R1": frozenset(),
+    "R2": frozenset(),
+    "R3": frozenset(),
+    "R4": frozenset({"threat_model", "security_review"}),
+}
+
+# Special-case route-change rows (override the generic rule).
+# (from_route, to_route) -> {target_phase, invalidate, required_backfill, dispatch}
+ROUTE_CHANGE_SPECIAL_CASES: dict[tuple[str, str], dict[str, Any]] = {
+    ("R5", "R2"): {
+        "target_phase": "build",
+        "invalidate": ["r5_ambiguity_resolution"],
+        "required_backfill": [],
+        "dispatch": "resume",
+    },
+    ("R5", "R3"): {
+        "target_phase": "discovery",
+        "invalidate": ["r5_ambiguity_resolution"],
+        "required_backfill": ["scope", "owned_files", "validation_plan"],
+        "dispatch": "PAUSE",
+    },
+    ("R5", "R4"): {
+        "target_phase": "discovery",
+        "invalidate": ["r5_ambiguity_resolution"],
+        "required_backfill": ["scope", "owned_files", "validation_plan",
+                              "threat_model", "security_review"],
+        "dispatch": "PAUSE",
+    },
+}
 
 
 # ---------------------------------------------------------------------------
@@ -184,6 +244,53 @@ def _read_events(track_id: str) -> list[dict[str, Any]]:
         except json.JSONDecodeError:
             continue
     return events
+
+
+def _append_phase_event(
+    track_id: str,
+    *,
+    from_phase: str | None,
+    to_phase: str,
+    evidence: dict[str, Any] | None = None,
+    triggered_by: str = "transition",
+) -> None:
+    """Append a phase_changed event.
+
+    Slice 1a primitive: records the transition without enforcing it.
+    Enforcement and prompt-side effects come in Slices 1b and 3.
+
+    Args:
+        track_id: target track.
+        from_phase: previous phase, or None for initial entry.
+        to_phase: new phase (must be in PHASE_ENUM).
+        evidence: optional dict of {evidence_key: ref-or-bool} for audit.
+        triggered_by: free-text reason ("transition", "route_change",
+            "retry", "initial"); used by analysis tools.
+    """
+    if to_phase not in PHASE_ENUM:
+        raise ValueError(f"unknown phase: {to_phase!r}; expected one of {PHASE_ENUM}")
+    _append_event(track_id, {
+        "event": "phase_changed",
+        "from_phase": from_phase,
+        "to_phase": to_phase,
+        "triggered_by": triggered_by,
+        "evidence": evidence or {},
+    })
+
+
+def current_phase(events: list[dict[str, Any]]) -> str:
+    """Fold the event log to determine the current phase.
+
+    Returns PHASE_INITIAL if no phase_changed events have been recorded.
+    Ignores malformed phase_changed events (missing/invalid to_phase).
+    """
+    for event in reversed(events):
+        if event.get("event") != "phase_changed":
+            continue
+        to_phase = event.get("to_phase")
+        if to_phase in PHASE_ENUM:
+            return to_phase
+    return PHASE_INITIAL
 
 
 # ---------------------------------------------------------------------------
@@ -314,6 +421,156 @@ def validate_sprint_contract(node: dict[str, Any], route_id: str) -> dict[str, A
     elif len(criteria) < MIN_ACCEPTANCE_CRITERIA_R3_R4:
         missing.append(f"acceptance_criteria_below_minimum:need_{MIN_ACCEPTANCE_CRITERIA_R3_R4}_have_{len(criteria)}")
     return {"valid": len(missing) == 0, "missing": missing}
+
+
+def phase_transition_allowed(
+    from_phase: str,
+    to_phase: str,
+    route: str,
+    evidence_keys: set[str] | frozenset[str],
+    *,
+    retry_count: int = 0,
+) -> dict[str, Any]:
+    """Predicate: is this phase edge legal under the transition table?
+
+    Slice 1a primitive: pure function over the transition table. Does NOT
+    enforce — callers in Slices 1b/3 will gate dispatch on the result.
+
+    Returns:
+        {
+            "allowed": bool,
+            "missing": [evidence_key, ...],  # missing required evidence
+            "reason": str | None,            # short failure reason if not allowed
+        }
+    """
+    # Initial entry — no prior phase, target must be PHASE_INITIAL
+    if from_phase is None:
+        if to_phase == PHASE_INITIAL:
+            return {"allowed": True, "missing": [], "reason": None}
+        return {
+            "allowed": False, "missing": [],
+            "reason": f"initial_phase_must_be_{PHASE_INITIAL}",
+        }
+
+    edge = (from_phase, to_phase)
+    if edge not in PHASE_TRANSITION_TABLE:
+        return {
+            "allowed": False, "missing": [],
+            "reason": f"illegal_edge:{from_phase}->{to_phase}",
+        }
+
+    # Retry budget for verify->build
+    budget = PHASE_RETRY_BUDGET.get(edge)
+    if budget is not None and retry_count >= budget:
+        return {
+            "allowed": False, "missing": [],
+            "reason": f"retry_budget_exhausted:{from_phase}->{to_phase}:max_{budget}",
+        }
+
+    required = PHASE_TRANSITION_TABLE[edge]
+    missing = sorted(required - set(evidence_keys))
+    if missing:
+        return {
+            "allowed": False, "missing": missing,
+            "reason": "missing_required_evidence",
+        }
+    return {"allowed": True, "missing": [], "reason": None}
+
+
+def route_change_reconcile(
+    from_route: str,
+    to_route: str,
+    current_evidence_keys: set[str] | frozenset[str],
+) -> dict[str, Any]:
+    """Compute the route-change reconciliation outcome.
+
+    Implements the generic stricter-route rule plus special-case overrides
+    from plan-final §1. Slice 1a primitive: returns the decision; callers
+    in later slices will emit phase_changed + invalidation events.
+
+    Returns:
+        {
+            "applies": bool,           # False if no change required
+            "target_phase": str | None,
+            "invalidate": [str, ...],
+            "required_backfill": [str, ...],
+            "dispatch": "PAUSE" | "resume" | None,
+            "rule": "special_case" | "generic_stricter" | "noop",
+        }
+    """
+    if from_route == to_route:
+        return {
+            "applies": False, "target_phase": None,
+            "invalidate": [], "required_backfill": [],
+            "dispatch": None, "rule": "noop",
+        }
+
+    # Special-case rows override the generic rule
+    special = ROUTE_CHANGE_SPECIAL_CASES.get((from_route, to_route))
+    if special is not None:
+        return {
+            "applies": True,
+            "target_phase": special["target_phase"],
+            "invalidate": list(special["invalidate"]),
+            "required_backfill": list(special["required_backfill"]),
+            "dispatch": special["dispatch"],
+            "rule": "special_case",
+        }
+
+    # Generic stricter-route rule: only applies to upward/corrective changes
+    # within the ordered set {R1, R2, R3, R4}.
+    if from_route not in ROUTE_STRICTNESS or to_route not in ROUTE_STRICTNESS:
+        return {
+            "applies": False, "target_phase": None,
+            "invalidate": [], "required_backfill": [],
+            "dispatch": None, "rule": "noop",
+        }
+    if ROUTE_STRICTNESS[to_route] <= ROUTE_STRICTNESS[from_route]:
+        # Downgrade or sideways — out of scope for Slice 1a.
+        return {
+            "applies": False, "target_phase": None,
+            "invalidate": [], "required_backfill": [],
+            "dispatch": None, "rule": "noop",
+        }
+
+    # Stricter route: target_phase = earliest phase whose required evidence
+    # is missing under new_route. Compute as union of inbound-edge evidence
+    # plus route-level required evidence, walking forward from discovery.
+    new_route_required = ROUTE_REQUIRED_EVIDENCE.get(to_route, frozenset())
+    have = set(current_evidence_keys)
+    target_phase = PHASE_INITIAL
+    # Walk discovery -> design -> build -> verify -> closeout; first phase
+    # whose inbound edge evidence isn't fully satisfied is the target.
+    inbound_chain = [
+        ("design", PHASE_TRANSITION_TABLE[("discovery", "design")]),
+        ("build", PHASE_TRANSITION_TABLE[("design", "build")]),
+        ("verify", PHASE_TRANSITION_TABLE[("build", "verify")]),
+        ("closeout", PHASE_TRANSITION_TABLE[("verify", "closeout")]),
+    ]
+    for phase_name, required in inbound_chain:
+        if not required.issubset(have):
+            target_phase = phase_name
+            break
+    # Route-level evidence stacks on top — if missing, reset further back.
+    if not new_route_required.issubset(have):
+        target_phase = "discovery"
+
+    required_backfill = sorted(
+        (set().union(*[r for _, r in inbound_chain]) | new_route_required) - have
+    )
+
+    return {
+        "applies": True,
+        "target_phase": target_phase,
+        # Invalidate artifacts produced under weaker route and lacking new_route's tags.
+        # Slice 1a records the rule; consumer in later slices does the actual GC.
+        "invalidate": [f"artifacts_tagged_produced_under:{from_route}_lacking:"
+                       + ",".join(sorted(new_route_required))]
+                       if new_route_required else [],
+        "required_backfill": required_backfill,
+        "dispatch": "PAUSE" if required_backfill else "resume",
+        "rule": "generic_stricter",
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -545,6 +802,7 @@ def compile_policy_envelope(
             "no_frontier_movement_max": NO_FRONTIER_MOVEMENT_MAX,
             "verification_profile": _verification_profile(route["route_id"], ui_detected=ui_detection["is_ui_work"]),
             "ui_detection": ui_detection,
+            "worker_runtime": _resolve_worker_runtime(route, manifest),
         },
         "soft_policy": soft_policy or {},
         "preflight": preflight,
@@ -566,19 +824,60 @@ def _verification_profile(route_id: str, *, ui_detected: bool = False) -> str:
     return base
 
 
+# Slice 4 (heterogeneous fleet contract): valid worker_runtime values.
+# `claude` = direct claude dispatch (current default); `goose` = goose ACP via
+# ~/.claude/bin/goose_dispatch.py (subscription path); `opencode` = anthropic-
+# concurrency-system runner.
+VALID_WORKER_RUNTIMES = ("claude", "goose", "opencode")
+DEFAULT_WORKER_RUNTIME = "claude"
+
+
+def _resolve_worker_runtime(route: dict[str, Any], manifest: dict[str, Any]) -> str:
+    """Resolve worker_runtime for a route using the standard override chain.
+
+    Precedence (most specific first):
+      1. route.profile_overrides.worker.worker_runtime
+      2. manifest.profiles.worker.worker_runtime
+      3. DEFAULT_WORKER_RUNTIME ("claude")
+
+    See ~/.claude/plans/users-chadsimon-thoughts-md-take-a-giggly-moore.md slice 4
+    for the heterogeneous fleet contract.
+    """
+    worker_override = route.get("profile_overrides", {}).get("worker", {})
+    candidate = worker_override.get("worker_runtime")
+    if candidate in VALID_WORKER_RUNTIMES:
+        return candidate
+    profile_default = manifest.get("profiles", {}).get("worker", {}).get("worker_runtime")
+    if profile_default in VALID_WORKER_RUNTIMES:
+        return profile_default
+    return DEFAULT_WORKER_RUNTIME
+
+
 def _build_verification_hints(policy: dict[str, Any], node: dict[str, Any]) -> dict[str, Any] | None:
-    """Build advisory Playwright verification hints for the executing session."""
+    """Build verification hints for the executing session.
+
+    When the verification_profile is ``browser_e2e`` (UI work detected on R3/R4), browser-e2e
+    coverage is REQUIRED, not advisory. The ``test_breadth_check`` postflight gate (configured in
+    route_manifest.json's ``postflight.gate_chain``) enforces breadth presence before slice closure.
+    See ``~/.claude/standards/testing-standard.md`` for the full breadth/escalation rules.
+    """
     route_policy = policy.get("route_policy", {})
     profile = route_policy.get("verification_profile", "slice_only")
     ui = route_policy.get("ui_detection", {})
     if profile != "browser_e2e" and not ui.get("is_ui_work", False):
         return None
     return {
+        # Legacy key kept for backward-compat with skills/drive/SKILL.md and downstream evaluators.
         "playwright_recommended": True,
+        # New keys: testing-standard v1.0 enforcement signal.
+        "playwright_required": True,
+        "required": True,
+        "testing_standard": "/Users/chadsimon/.claude/standards/testing-standard.md",
+        "enforced_by": "test_breadth_check (route_manifest.json postflight.gate_chain)",
+        "required_breadths_hint": ["full", "browser-e2e"],
         "verification_profile": profile,
         "ui_detection": ui,
-        "advisory": True,
-        "suggested_workflow": [
+        "workflow": [
             "Start dev server if not running",
             "browser_navigate to relevant page",
             "browser_snapshot to verify DOM state",
@@ -1728,11 +2027,38 @@ def dispatch_track(track_id: str) -> dict[str, Any]:
         "slice_id": slice_id,
         "slice_contract": node.get("slice_contract", {}),
         "governance": governance,
+        # Slice 4: heterogeneous fleet — surface worker_runtime so the caller
+        # picks the right invocation path (claude direct / goose_dispatch.py /
+        # anthropic-concurrency-system).
+        "worker_runtime": policy.get("route_policy", {}).get("worker_runtime", DEFAULT_WORKER_RUNTIME),
     }
+    if result["worker_runtime"] != DEFAULT_WORKER_RUNTIME:
+        result["worker_runtime_invocation"] = _worker_runtime_invocation(result["worker_runtime"])
     verification_hints = _build_verification_hints(policy, node)
     if verification_hints:
         result["verification_hints"] = verification_hints
     return result
+
+
+def _worker_runtime_invocation(runtime: str) -> dict[str, Any]:
+    """Return the canonical invocation hint for a non-default worker_runtime."""
+    if runtime == "goose":
+        return {
+            "runtime": "goose",
+            "binary": "/Users/chadsimon/.claude/bin/goose_dispatch.py",
+            "via": "goose ACP plugin → Codex/Claude Pro-Max subscription",
+            "cost_model": "subscription (no per-token billing)",
+            "throttle": "rate-limit-aware (5h Pro/Max windows)",
+        }
+    if runtime == "opencode":
+        return {
+            "runtime": "opencode",
+            "binary": "opencode",
+            "via": "anthropic-concurrency-system runner",
+            "cost_model": "subscription (OpenCode Pro/Max)",
+            "throttle": "concurrency-tuned (98+ parallel sessions max)",
+        }
+    return {"runtime": runtime}
 
 
 # ---------------------------------------------------------------------------
@@ -2035,8 +2361,14 @@ def initialize_track(
     route_override: str | None = None,
     soft_policy: dict[str, Any] | None = None,
     include_memory: bool = True,
+    invoker: str | None = None,
 ) -> dict[str, Any]:
-    """Initialize a new objective track with all state."""
+    """Initialize a new objective track with all state.
+
+    invoker: optional slash-command name that triggered this track
+    (e.g., "drive", "build", "govern"). Recorded in state and session index
+    to support orchestration-surface usage audits.
+    """
     cwd = os.path.realpath(cwd)
     track_id = build_track_id(task, cwd)
     td = track_dir(track_id)
@@ -2083,6 +2415,7 @@ def initialize_track(
         "task": task,
         "cwd": cwd,
         "mode": mode,
+        "invoker": invoker,
         "views": {
             "graph": graph,
             "frontier": frontier,
@@ -2110,6 +2443,7 @@ def initialize_track(
             "task": task,
             "cwd": cwd,
             "mode": mode,
+            "invoker": invoker,
             "route_id": route["route_id"],
             "preflight_classification": preflight["classification"],
         })
@@ -2124,7 +2458,7 @@ def initialize_track(
         )
 
     # Register in session index
-    _register_track(track_id, cwd, route["route_id"])
+    _register_track(track_id, cwd, route["route_id"], invoker=invoker)
 
     return {
         "track_id": track_id,
@@ -2138,13 +2472,14 @@ def initialize_track(
     }
 
 
-def _register_track(track_id: str, cwd: str, route_id: str) -> None:
+def _register_track(track_id: str, cwd: str, route_id: str, *, invoker: str | None = None) -> None:
     """Register track in session index."""
     index_path = AUTONOMY_DIR / "session_index.json"
     index = _load_json(index_path) if index_path.exists() else {"tracks": {}}
     index["tracks"][track_id] = {
         "cwd": cwd,
         "route_id": route_id,
+        "invoker": invoker,
         "registered_at": now_iso(),
     }
     _save_json(index_path, index)
