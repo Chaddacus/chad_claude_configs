@@ -186,6 +186,79 @@ class TestMaybeAutoAdvancePhase:
 
 
 # ===========================================================================
+# _active_slice_owned_files
+# ===========================================================================
+
+class TestActiveSliceOwnedFiles:
+    def _state(self, *, nodes=None, next_slice_id=None):
+        return {
+            "views": {
+                "graph": {"nodes": nodes or {}},
+                "frontier": {"next_slice_id": next_slice_id},
+            },
+        }
+
+    def test_dispatch_picks_action_result_slice(self):
+        state = self._state(
+            nodes={"s-just-dispatched": {"owned_scope": ["a.py", "b.py"]}},
+            next_slice_id="s-other",
+        )
+        owned = rt._active_slice_owned_files(
+            state, action="dispatch",
+            action_result={"dispatch": {"slice_id": "s-just-dispatched"}},
+            anticipation={},
+        )
+        assert sorted(owned) == ["a.py", "b.py"]
+
+    def test_evaluate_picks_evaluator_dispatch_slice(self):
+        state = self._state(
+            nodes={"s-eval": {"owned_scope": ["c.py"]}},
+            next_slice_id="s-other",
+        )
+        owned = rt._active_slice_owned_files(
+            state, action="evaluate", action_result={},
+            anticipation={"evaluator_dispatch": {"slice_id": "s-eval"}},
+        )
+        assert owned == ["c.py"]
+
+    def test_close_falls_back_to_frontier(self):
+        state = self._state(
+            nodes={"s-front": {"owned_scope": ["x.py"]}},
+            next_slice_id="s-front",
+        )
+        owned = rt._active_slice_owned_files(
+            state, action="close", action_result={}, anticipation={},
+        )
+        assert owned == ["x.py"]
+
+    def test_no_slice_resolvable_returns_empty(self):
+        state = self._state(nodes={}, next_slice_id=None)
+        owned = rt._active_slice_owned_files(
+            state, action="dispatch", action_result={}, anticipation={},
+        )
+        assert owned == []
+
+    def test_missing_node_returns_empty(self):
+        state = self._state(nodes={}, next_slice_id="ghost-slice")
+        owned = rt._active_slice_owned_files(
+            state, action="dispatch", action_result={}, anticipation={},
+        )
+        assert owned == []
+
+    def test_filters_falsy_entries(self):
+        state = self._state(
+            nodes={"s": {"owned_scope": ["a.py", "", None, "b.py"]}},
+            next_slice_id="s",
+        )
+        owned = rt._active_slice_owned_files(
+            state, action="dispatch",
+            action_result={"dispatch": {"slice_id": "s"}},
+            anticipation={},
+        )
+        assert sorted(owned) == ["a.py", "b.py"]
+
+
+# ===========================================================================
 # Action → phase intent map
 # ===========================================================================
 

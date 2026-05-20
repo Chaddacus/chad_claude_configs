@@ -1300,6 +1300,41 @@ def _collect_evidence_keys(track_id: str) -> set[str]:
     return ev
 
 
+def _active_slice_owned_files(
+    state: dict[str, Any],
+    *,
+    action: str,
+    action_result: dict[str, Any],
+    anticipation: dict[str, Any],
+) -> list[str]:
+    """Find the owned_scope list for the slice the cycle is operating on.
+
+    Resolution order:
+      - dispatch  → action_result.dispatch.slice_id (the just-dispatched slice)
+      - evaluate  → anticipation.evaluator_dispatch.slice_id
+      - other     → frontier.next_slice_id (current focus)
+    Returns [] when no slice can be resolved (e.g., close, or empty graph).
+    """
+    graph = state.get("views", {}).get("graph", {}) or {}
+    frontier = state.get("views", {}).get("frontier", {}) or {}
+    nodes = graph.get("nodes") or {}
+
+    slice_id: str | None = None
+    if action == "dispatch":
+        slice_id = (action_result.get("dispatch") or {}).get("slice_id")
+    elif action == "evaluate":
+        slice_id = (anticipation.get("evaluator_dispatch") or {}).get("slice_id")
+    if not slice_id:
+        slice_id = frontier.get("next_slice_id")
+
+    if not slice_id:
+        return []
+    node = nodes.get(slice_id) or {}
+    owned = node.get("owned_scope", []) or []
+    # Defensive: ensure list[str].
+    return [str(x) for x in owned if x]
+
+
 def _maybe_auto_advance_phase(
     track_id: str,
     *,
@@ -3577,13 +3612,20 @@ def cycle_track(
         cwd_for_advance = policy.get("hard_policy", {}).get("cwd", "")
         target_intent = _ACTION_TO_PHASE_INTENT.get(action)
         if target_intent and cwd_for_advance:
+            # Re-load state after the action — dispatch may have mutated the
+            # frontier and node states.
+            state_after_action = _load_json(td / "objective.state.json")
+            slice_owned = _active_slice_owned_files(
+                state_after_action,
+                action=action, action_result=action_result,
+                anticipation=anticipation,
+            )
             _maybe_auto_advance_phase(
                 track_id,
                 target_phase=target_intent,
                 route=route_id,
                 cwd=cwd_for_advance,
-                owned_files=[],  # track-level; slice-level owned scope
-                                  # would be a follow-up enhancement
+                owned_files=slice_owned,
                 shadow=shadow,
             )
 
