@@ -101,6 +101,8 @@ REPLAYABLE_EVENTS = {
     "decision_record",
     "cycle_summary",
     "track_summary",
+    "baseline_captured",
+    "baseline_unavailable",
 }
 AUDIT_ONLY_EVENTS = {
     "frontier_refreshed",
@@ -201,6 +203,69 @@ ROUTE_CHANGE_SPECIAL_CASES: dict[tuple[str, str], dict[str, Any]] = {
 # Adding scope/validation_plan/tool_invocation requires state plumbing —
 # separate proposal, see plan-final §3 + Slice 1b grounding notes.
 OBSERVABLE_DECISION_KINDS = ("phase", "route", "next_action", "owned_files")
+
+# ---------------------------------------------------------------------------
+# Verifier baseline capture (Slice 1c)
+# Plan ref: ~/.codex-spar/stage-aware-orchestrator-loop/plan-final.md §2
+# Deviation from §2: dropped `matrix_cell` from baseline_key. A verifier's
+# output against (cwd, base_git_sha, owned_files_hash) is the same regardless
+# of which transition checks it; Slice 3 selects which command per cell.
+# Baseline key: sha256({track_id, route, command_id, owned_files_hash, base_git_sha})
+# ---------------------------------------------------------------------------
+
+# Static allowlist (per Codex M3: no auto-shelling to arbitrary commands).
+# Project-level override via .claude/verifiers.yaml is Slice 3 work.
+VERIFIER_ALLOWLIST: dict[str, dict[str, Any]] = {
+    "ruff_check": {
+        "argv": ["ruff", "check", "."],
+        "project_markers": ["pyproject.toml", "ruff.toml", ".ruff.toml"],
+        "timeout_ms": 30000,
+    },
+    "mypy_check": {
+        "argv": ["python3", "-m", "mypy", "--no-incremental", "."],
+        "project_markers": ["mypy.ini", "pyproject.toml"],
+        "timeout_ms": 60000,
+    },
+    "pytest_smoke": {
+        "argv": ["python3", "-m", "pytest", "-q", "-x", "--tb=no"],
+        "project_markers": ["pytest.ini", "pyproject.toml", "conftest.py"],
+        "timeout_ms": 60000,
+    },
+    "eslint_check": {
+        "argv": ["npx", "--no-install", "eslint", "."],
+        "project_markers": [".eslintrc", ".eslintrc.js", ".eslintrc.json",
+                            ".eslintrc.cjs", "eslint.config.js"],
+        "timeout_ms": 30000,
+    },
+    "tsc_noemit": {
+        "argv": ["npx", "--no-install", "tsc", "--noEmit"],
+        "project_markers": ["tsconfig.json"],
+        "timeout_ms": 60000,
+    },
+}
+
+# Per-route total baseline budget. R1 and R5-unresolved skip entirely.
+BASELINE_BUDGET_MS_BY_ROUTE = {
+    "R1": 0,
+    "R2": 1500,
+    "R3": 8000,
+    "R4": 30000,
+    "R5": 0,
+}
+
+# Baseline status enum (Slice 1c emits; Slice 3 acts on these).
+BASELINE_STATUS = (
+    "pass",
+    "preexisting_failure",
+    "infra_error",
+    "timeout",
+    "budget_exhausted",
+    "not_applicable",
+    "baseline_unavailable",
+)
+
+BASELINE_OUTPUT_EXCERPT_BYTES = 4096
+
 
 QUESTION_REGISTRY_INLINE: dict[str, Any] = {
     "registry_version": "inline-slice-1b",
@@ -570,6 +635,233 @@ def _emit_cycle_summary(
         "tokens_out": None,
         "wall_clock_ms": None,
     })
+
+
+# ---------------------------------------------------------------------------
+# Baseline capture (Slice 1c)
+# ---------------------------------------------------------------------------
+
+def _baseline_key(
+    *,
+    track_id: str,
+    route: str,
+    command_id: str,
+    owned_files_hash: str,
+    base_git_sha: str,
+) -> str:
+    """Deterministic baseline key (per plan-final §2 with matrix_cell dropped)."""
+    payload = {
+        "track_id": track_id,
+        "route": route,
+        "command_id": command_id,
+        "owned_files_hash": owned_files_hash,
+        "base_git_sha": base_git_sha,
+    }
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True).encode()
+    ).hexdigest()
+
+
+def _owned_files_hash(owned_scope: list[str] | None) -> str:
+    """sha256 of sorted owned-files set; empty set → known empty hash."""
+    return hashlib.sha256(
+        json.dumps(sorted(owned_scope or []), default=str).encode()
+    ).hexdigest()
+
+
+def _detect_applicable_verifiers(cwd: str) -> list[str]:
+    """Return command_ids whose project_markers exist in cwd.
+
+    Allowlist-only — no auto-detection of arbitrary commands (Codex M3).
+    Empty list if cwd doesn't exist.
+    """
+    if not cwd or not os.path.isdir(cwd):
+        return []
+    applicable: list[str] = []
+    for command_id, spec in VERIFIER_ALLOWLIST.items():
+        for marker in spec["project_markers"]:
+            if os.path.exists(os.path.join(cwd, marker)):
+                applicable.append(command_id)
+                break
+    return applicable
+
+
+def _capture_baseline_command(
+    *,
+    command_id: str,
+    cwd: str,
+    remaining_budget_ms: int,
+) -> dict[str, Any]:
+    """Run one verifier command and return its baseline result.
+
+    Does NOT touch the worktree — the caller is responsible for ensuring
+    we're against a clean ref (see `capture_baselines`).
+    Returns: {status, exit_code, output_excerpt, duration_ms}.
+    """
+    spec = VERIFIER_ALLOWLIST[command_id]
+    timeout_s = min(spec["timeout_ms"], remaining_budget_ms) / 1000.0
+    if timeout_s <= 0:
+        return {
+            "status": "budget_exhausted", "exit_code": None,
+            "output_excerpt": "", "duration_ms": 0,
+        }
+    start = time.monotonic()
+    try:
+        result = subprocess.run(
+            spec["argv"], cwd=cwd,
+            capture_output=True, text=True, timeout=timeout_s,
+        )
+        duration_ms = int((time.monotonic() - start) * 1000)
+        combined = (result.stdout + result.stderr)[-BASELINE_OUTPUT_EXCERPT_BYTES:]
+        status = "pass" if result.returncode == 0 else "preexisting_failure"
+        return {
+            "status": status, "exit_code": result.returncode,
+            "output_excerpt": combined, "duration_ms": duration_ms,
+        }
+    except subprocess.TimeoutExpired:
+        return {
+            "status": "timeout", "exit_code": None,
+            "output_excerpt": "", "duration_ms": int((time.monotonic() - start) * 1000),
+        }
+    except (FileNotFoundError, OSError) as e:
+        return {
+            "status": "infra_error", "exit_code": None,
+            "output_excerpt": f"{type(e).__name__}: {e}",
+            "duration_ms": int((time.monotonic() - start) * 1000),
+        }
+
+
+def _get_base_git_sha(cwd: str) -> str | None:
+    """Return HEAD sha or None when not in a git repo / git missing."""
+    if not _is_git_repo(cwd):
+        return None
+    rc, out = _run_git(["rev-parse", "HEAD"], cwd)
+    if rc != 0 or not out.strip():
+        return None
+    return out.strip()
+
+
+def capture_baselines(
+    track_id: str,
+    *,
+    cwd: str,
+    route: str,
+    owned_files: list[str] | None,
+) -> dict[str, Any]:
+    """Capture verifier baselines pre-dispatch (Slice 1c entry point).
+
+    Emits one `baseline_captured` or `baseline_unavailable` event per
+    detected verifier command. Stores per-command JSON under
+    `~/.claude/state/autonomy/{track_id}/baselines/{key}.json`.
+
+    Does NOT block dispatch (Slice 3 wires that). Returns a summary dict
+    for the caller's telemetry.
+    """
+    summary = {
+        "route": route,
+        "captured": [],
+        "unavailable": [],
+        "budget_ms_total": BASELINE_BUDGET_MS_BY_ROUTE.get(route, 0),
+        "budget_ms_used": 0,
+    }
+
+    budget = BASELINE_BUDGET_MS_BY_ROUTE.get(route, 0)
+    if budget <= 0:
+        # Route bypasses baseline capture (R1, R5-unresolved).
+        return summary
+
+    base_git_sha = _get_base_git_sha(cwd)
+    if not base_git_sha:
+        # No clean ref available → emit baseline_unavailable for every
+        # detected verifier so Slice 3 can classify as unknown_failure later.
+        for command_id in _detect_applicable_verifiers(cwd):
+            _append_event(track_id, {
+                "event": "baseline_unavailable",
+                "command_id": command_id,
+                "reason": "no_git_repo_or_no_head",
+                "cwd": cwd,
+            })
+            summary["unavailable"].append({
+                "command_id": command_id, "reason": "no_git_repo_or_no_head",
+            })
+        return summary
+
+    applicable = _detect_applicable_verifiers(cwd)
+    if not applicable:
+        return summary
+
+    owned_files_hash = _owned_files_hash(owned_files)
+    baselines_dir = track_dir(track_id) / "baselines"
+    _ensure_dir(baselines_dir)
+
+    # Try stash for clean ref. If stash fails (e.g., nothing to stash, or
+    # stash command unavailable), proceed against HEAD directly — base_git_sha
+    # still pins the ref-identity for the baseline key.
+    stash_active = False
+    rc, stash_out = _run_git(
+        ["stash", "push", "--include-untracked", "-m", f"baseline-{track_id}"],
+        cwd, timeout=10,
+    )
+    if rc == 0 and "No local changes" not in stash_out:
+        stash_active = True
+
+    try:
+        budget_used_ms = 0
+        for command_id in applicable:
+            remaining = budget - budget_used_ms
+            if remaining <= 0:
+                _append_event(track_id, {
+                    "event": "baseline_unavailable",
+                    "command_id": command_id,
+                    "reason": "budget_exhausted",
+                    "budget_ms_total": budget,
+                    "budget_ms_used": budget_used_ms,
+                })
+                summary["unavailable"].append({
+                    "command_id": command_id, "reason": "budget_exhausted",
+                })
+                continue
+            result = _capture_baseline_command(
+                command_id=command_id, cwd=cwd, remaining_budget_ms=remaining,
+            )
+            budget_used_ms += result["duration_ms"]
+
+            key = _baseline_key(
+                track_id=track_id, route=route, command_id=command_id,
+                owned_files_hash=owned_files_hash, base_git_sha=base_git_sha,
+            )
+            baseline_record = {
+                "key": key,
+                "track_id": track_id,
+                "route": route,
+                "command_id": command_id,
+                "owned_files_hash": owned_files_hash,
+                "base_git_sha": base_git_sha,
+                "status": result["status"],
+                "exit_code": result["exit_code"],
+                "output_excerpt": result["output_excerpt"],
+                "duration_ms": result["duration_ms"],
+                "captured_at": now_iso(),
+            }
+            (baselines_dir / f"{key}.json").write_text(
+                json.dumps(baseline_record, indent=2) + "\n"
+            )
+            _append_event(track_id, {
+                "event": "baseline_captured",
+                "command_id": command_id,
+                "status": result["status"],
+                "key": key,
+                "duration_ms": result["duration_ms"],
+            })
+            summary["captured"].append({
+                "command_id": command_id, "status": result["status"], "key": key,
+            })
+        summary["budget_ms_used"] = budget_used_ms
+    finally:
+        if stash_active:
+            _run_git(["stash", "pop"], cwd, timeout=10)
+
+    return summary
 
 
 def _emit_track_summary(track_id: str, *, closure_state: str) -> None:
@@ -2306,6 +2598,25 @@ def dispatch_track(track_id: str) -> dict[str, Any]:
             "slice_id": slice_id,
             "contract_validation": contract_check,
         }
+
+    # Slice 1c: pre-dispatch baseline capture (no enforcement; Slice 3 acts).
+    # Wrapped in a try so a baseline failure never blocks dispatch.
+    try:
+        cwd = policy.get("hard_policy", {}).get("cwd", "")
+        if cwd:
+            capture_baselines(
+                track_id,
+                cwd=cwd,
+                route=route_id,
+                owned_files=node.get("owned_scope", []),
+            )
+    except Exception as e:  # noqa: BLE001 — defensive; baseline must not block dispatch
+        _append_event(track_id, {
+            "event": "baseline_unavailable",
+            "command_id": None,
+            "reason": "capture_exception",
+            "error": f"{type(e).__name__}: {e}",
+        })
 
     # Dispatch inline (R1/R2) or mark for governed dispatch (R3/R4)
     node["state"] = "in_progress"
