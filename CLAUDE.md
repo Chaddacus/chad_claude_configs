@@ -15,14 +15,7 @@ These instructions apply to every Claude session in this home. Project-level `CL
 
 ## Canonical Claude Runtime Surfaces
 
-- Global policy: `~/.claude/CLAUDE.md`
-- Runtime config: `~/.claude/settings.json`
-- Governed routing/runtime contract: `~/.claude/state/route_manifest.json`
-- Governed wrapper: `~/.claude/bin/claude_run`
-- Postflight runtime: `~/.claude/bin/ralph_done_loop.py`
-- Acceptance checker: `~/.claude/bin/postflight_acceptance_check.py`
-- Managed role files: `~/.claude/agents/*.md`
-- Skills, plugins, hooks, and notifications under `~/.claude/skills/`, `~/.claude/plugins/`, and `~/.claude/bin/`
+Policy: `~/.claude/CLAUDE.md`. Config: `~/.claude/settings.json`. Routing contract: `~/.claude/state/route_manifest.json`. Full surface map and canonical-owner index: `~/.claude/standards/REFERENCE_INDEX.md`.
 
 ## Ownership Boundary
 
@@ -79,7 +72,9 @@ When the auto-runtime emits an observable event in the track event log (`objecti
 - **Cycle-budget exhaustion.** `event == "dispatch_blocked"` and `reason == "dispatch_cycle_cap_exceeded"` in the track log.
 - **Material route promotion.** `event == "route_promoted"` where `to_route` differs from `from_route` and, after comparing both through `~/.claude/state/route_manifest.json` or the materialized policy view, at least one of the following differs: dispatch mode, required verification gate, governance lane, or authority/risk class. A `route_promoted` event whose only difference is the cycle cap (e.g. R2→R3 with no other property change) does not need to be surfaced.
 
-Compaction is currently NOT covered by this clause because the runtime emits no compaction marker in the track event log; if a PreCompact marker is added later, it falls under the same rule. This clause does not require mid-task progress reports in the absence of a breach event.
+- **Compaction.** `event == "compaction"` in the track log (appended by the PreCompact hook `precompact_track_marker.py` since 2026-06-09) falls under the same rule when it lands mid-track.
+
+This clause does not require mid-task progress reports in the absence of a breach event.
 
 ### Surface conflicts; do not average them
 Refines: new rule.
@@ -224,37 +219,15 @@ Before delivering non-trivial work, perform both checks:
 
 ## Memory Workflow
 
-Two-tier model:
-- **Native memory** (`~/.claude/memory/`, `~/.claude/projects/*/memory/`): auto-loaded session context, markdown files.
-- **omni-mem MCP** (`~/.omni-mem/`): cross-session semantic search, fact graph, journal, and preference storage via Docker container on port 8765. Configured in `~/.mcp.json`.
-
-Rules:
-- Use omni-mem retrieval (`search`, `build_context`, `build_memory_pack`) before non-trivial implementation.
-- Prefer exact workspace/project scope via `workspaceId`.
+Two-tier model (native markdown memory + omni-mem MCP; architecture detail in `~/.claude/standards/REFERENCE_INDEX.md`). Rules:
+- Use omni-mem retrieval (`search`, `build_context`, `build_memory_pack`) before non-trivial implementation; prefer exact workspace scope via `workspaceId`.
 - Save durable decisions via `save_memory`; stable preferences via `save_preference`; session handoffs via `journal_write`; factual relationships via `fact_add`.
 - Stop hooks auto-trigger memory persistence every 15 exchanges and at compaction.
 - Never store secrets in memory.
 
 ## Reference Index
 
-Canonical owners by concern:
-- Runtime config: `/Users/chadsimon/.claude/settings.json`
-- Routing and governed runtime contract: `/Users/chadsimon/.claude/state/route_manifest.json`
-- Global agent behavior: `/Users/chadsimon/.claude/CLAUDE.md`
-- Workspace-local overrides: project `CLAUDE.md`
-- Prompt contracts: `/Users/chadsimon/.claude/skills/memory-adaptation/references/PROMPT_CONTRACTS.md`
-- Planning-gate operator workflow: `/Users/chadsimon/.claude/skills/planning-gate/SKILL.md`
-- Policy ownership map: `/Users/chadsimon/.claude/standards/POLICY_OWNERSHIP.md`
-
-Standards and runbooks:
-- Adaptive memory: `/Users/chadsimon/.claude/standards/ADAPTIVE_MEMORY_RUNBOOK.md`
-- Ralph/postflight: `/Users/chadsimon/.claude/standards/RALPH_LOOP_RUNBOOK.md`
-- Route canary: `/Users/chadsimon/.claude/standards/ROUTE_CANARY_RUNBOOK.md`
-- Stop-gate L2 completion records: `/Users/chadsimon/.claude/standards/STOP_GATE_L2.md`
-- Auto runtime & governance mechanics: `/Users/chadsimon/.claude/standards/AUTO_RUNTIME.md`
-- Enterprise maturity rubric fallback: `/Users/chadsimon/.claude/standards/enterprise-maturity-rubric-generic.md`
-
-Legacy reference (not canonical inputs): `~/.claude/sync-sources/`, `~/.claude/rules/codex-import/`, `~/.claude/state/codex_sync_manifest.json`, and `claude-mem` (`~/.claude-mem/`, import/reference only — not in the live request path).
+Canonical owners, standards/runbooks, and legacy-surface map: `~/.claude/standards/REFERENCE_INDEX.md`. Read it when you need a pointer; do not guess paths.
 
 Notifications:
 - Always send a completion notification before the final user response using `/Users/chadsimon/.claude/bin/notify_done.sh`.

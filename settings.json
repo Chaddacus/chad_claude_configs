@@ -97,38 +97,24 @@
           },
           {
             "type": "command",
-            "command": "python3 /Users/chadsimon/.claude/bin/product_truth_auto_dispatch.py",
-            "timeout": 20
-          },
-          {
-            "type": "command",
-            "command": "python3 /Users/chadsimon/.claude/bin/completion_gate.py --event stop",
-            "timeout": 60
-          },
-          {
-            "type": "command",
-            "command": "python3 /Users/chadsimon/.claude/bin/stop_reason_telemetry.py",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "python3 /Users/chadsimon/.claude/bin/replan_evidence_check.py --strict",
-            "timeout": 8
-          },
-          {
-            "type": "command",
-            "command": "python3 /Users/chadsimon/.claude/bin/self_merge_check.py",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "python3 /Users/chadsimon/.claude/bin/stop_gate.py",
-            "timeout": 5
+            "command": "python3 /Users/chadsimon/.claude/bin/hook_chain.py --chain stop",
+            "timeout": 90
           },
           {
             "type": "command",
             "command": "python3 /Users/chadsimon/.claude/dandori/bin/hook_shadow_stop.py",
             "timeout": 5
+          }
+        ]
+      }
+    ],
+    "StopFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 /Users/chadsimon/.claude/bin/stop_failure_alert.py",
+            "timeout": 10
           }
         ]
       }
@@ -151,6 +137,11 @@
             "type": "command",
             "command": "bash /Users/chadsimon/code/omni-mem/hooks/omni_mem_precompact_hook.sh",
             "timeout": 30
+          },
+          {
+            "type": "command",
+            "command": "python3 /Users/chadsimon/.claude/bin/precompact_track_marker.py",
+            "timeout": 5
           }
         ]
       }
@@ -204,18 +195,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 /Users/chadsimon/.claude/bin/edit_verify_async.py",
-            "timeout": 10
-          },
-          {
-            "type": "command",
-            "command": "python3 /Users/chadsimon/.claude/bin/agent_def_edit_warn.py",
-            "timeout": 3
-          },
-          {
-            "type": "command",
-            "command": "python3 /Users/chadsimon/.claude/bin/case_recorder.py",
-            "timeout": 3
+            "command": "python3 /Users/chadsimon/.claude/bin/hook_chain.py --chain post-edit",
+            "timeout": 15
           },
           {
             "type": "command",
@@ -229,13 +210,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 /Users/chadsimon/.claude/bin/compaction_suggester.py",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "python3 /Users/chadsimon/.claude/bin/case_recorder.py",
-            "timeout": 3
+            "command": "python3 /Users/chadsimon/.claude/bin/hook_chain.py --chain post-bash",
+            "timeout": 8
           }
         ]
       }
@@ -279,18 +255,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 /Users/chadsimon/.claude/bin/tool_failure_context.py",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "python3 /Users/chadsimon/.claude/bin/post_tool_use_failure_fal.py",
-            "timeout": 4
-          },
-          {
-            "type": "command",
-            "command": "python3 /Users/chadsimon/.claude/bin/case_recorder.py --failure",
-            "timeout": 3
+            "command": "python3 /Users/chadsimon/.claude/bin/hook_chain.py --chain post-failure",
+            "timeout": 8
           }
         ]
       }
