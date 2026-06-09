@@ -64,19 +64,19 @@ def _definition_of_done() -> list[dict[str, str]]:
             "id": "dod-correctness",
             "category": "correctness",
             "criterion": "Contract and scheduler validations pass deterministically.",
-            "verification": "python3.11 -m pytest /Users/chadsimon/.claude/skills/planning-gate/tests/test_control_plane_contracts.py -k plan",
+            "verification": "python3.11 -m pytest ~/.claude/skills/planning-gate/tests/test_control_plane_contracts.py -k plan",
         },
         {
             "id": "dod-tests",
             "category": "tests",
             "criterion": "Automated tests cover packet, scheduler, and closure edge cases.",
-            "verification": "python3.11 -m pytest /Users/chadsimon/.claude/skills/planning-gate/tests/test_control_plane_contracts.py",
+            "verification": "python3.11 -m pytest ~/.claude/skills/planning-gate/tests/test_control_plane_contracts.py",
         },
         {
             "id": "dod-security",
             "category": "security",
             "criterion": "Validators reject out-of-policy control-plane contracts and artifact drift.",
-            "verification": "python3.11 -m pytest /Users/chadsimon/.claude/skills/planning-gate/tests/test_control_plane_contracts.py -k security",
+            "verification": "python3.11 -m pytest ~/.claude/skills/planning-gate/tests/test_control_plane_contracts.py -k security",
         },
         {
             "id": "dod-observability",
@@ -88,7 +88,7 @@ def _definition_of_done() -> list[dict[str, str]]:
             "id": "dod-rollback",
             "category": "rollback",
             "criterion": "Migration fallback stays explicit and compat rollback is verified.",
-            "verification": "python3.11 -m pytest /Users/chadsimon/.claude/skills/planning-gate/tests/test_control_plane_contracts.py -k migration",
+            "verification": "python3.11 -m pytest ~/.claude/skills/planning-gate/tests/test_control_plane_contracts.py -k migration",
         },
     ]
 
@@ -406,7 +406,7 @@ def _implementation_payload(artifacts_root: Path, track_id: str) -> tuple[dict, 
         "tests_run": [
             {
                 "name": "contracts",
-                "command": "python3.11 -m pytest /Users/chadsimon/.claude/skills/planning-gate/tests/test_control_plane_contracts.py",
+                "command": "python3.11 -m pytest ~/.claude/skills/planning-gate/tests/test_control_plane_contracts.py",
                 "status": "pass",
                 "result": "control-plane contract tests passed",
                 "proof_artifact": test_artifact,
@@ -435,7 +435,7 @@ def _implementation_payload(artifacts_root: Path, track_id: str) -> tuple[dict, 
             {
                 "stage": "75%",
                 "status": "pass",
-                "command": "python3.11 -m pytest /Users/chadsimon/.claude/skills/planning-gate/tests/test_control_plane_contracts.py -k runnable",
+                "command": "python3.11 -m pytest ~/.claude/skills/planning-gate/tests/test_control_plane_contracts.py -k runnable",
                 "observed_output": "runnable set tests passed",
                 "decision": "continue",
                 "proof_artifact": smoke75_artifact,
@@ -444,7 +444,7 @@ def _implementation_payload(artifacts_root: Path, track_id: str) -> tuple[dict, 
             {
                 "stage": "100%",
                 "status": "pass",
-                "command": "python3.11 -m pytest /Users/chadsimon/.claude/skills/planning-gate/tests/test_control_plane_contracts.py -k impl_valid",
+                "command": "python3.11 -m pytest ~/.claude/skills/planning-gate/tests/test_control_plane_contracts.py -k impl_valid",
                 "observed_output": "implementation validation passed",
                 "decision": "approve",
                 "proof_artifact": smoke100_artifact,

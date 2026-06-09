@@ -20,40 +20,40 @@ Execute and validate the 48-hour Codex app router canary for Routing Contract v1
 ## Phase 1: Controlled Corpus Session
 1. Set debug on for one dedicated validation session:
 ```bash
-cat > /Users/chadsimon/.claude/state/route_debug.json <<'JSON'
+cat > ~/.claude/state/route_debug.json <<'JSON'
 { "enabled": true }
 JSON
 ```
 2. In the Codex app, run each corpus prompt once and set route metadata task IDs to match case IDs (`R1-01` ... `R4-10`).
 3. Extract audit records:
 ```bash
-/Users/chadsimon/.claude/bin/route_audit_extract.sh --mode append
+~/.claude/bin/route_audit_extract.sh --mode append
 ```
 4. Validate thresholds:
 ```bash
-/Users/chadsimon/.claude/bin/route_validate_audit.sh \
-  --cases /Users/chadsimon/.claude/state/route_test_cases.json \
-  --audit /Users/chadsimon/.claude/state/route_audit.jsonl \
-  --manifest /Users/chadsimon/.claude/state/route_manifest.json
+~/.claude/bin/route_validate_audit.sh \
+  --cases ~/.claude/state/route_test_cases.json \
+  --audit ~/.claude/state/route_audit.jsonl \
+  --manifest ~/.claude/state/route_manifest.json
 ```
 
 ## Phase 2: Canary (48 hours)
 1. Set debug back off:
 ```bash
-cat > /Users/chadsimon/.claude/state/route_debug.json <<'JSON'
+cat > ~/.claude/state/route_debug.json <<'JSON'
 { "enabled": false }
 JSON
 ```
 2. Keep audit extraction on a regular interval (manual or automation):
 ```bash
-/Users/chadsimon/.claude/bin/route_audit_extract.sh --mode append
+~/.claude/bin/route_audit_extract.sh --mode append
 ```
 3. Re-run threshold validation at least every 12 hours:
 ```bash
-/Users/chadsimon/.claude/bin/route_validate_audit.sh \
-  --cases /Users/chadsimon/.claude/state/route_test_cases.json \
-  --audit /Users/chadsimon/.claude/state/route_audit.jsonl \
-  --manifest /Users/chadsimon/.claude/state/route_manifest.json
+~/.claude/bin/route_validate_audit.sh \
+  --cases ~/.claude/state/route_test_cases.json \
+  --audit ~/.claude/state/route_audit.jsonl \
+  --manifest ~/.claude/state/route_manifest.json
 ```
 
 ## Pass/Fail Criteria
@@ -68,5 +68,5 @@ Rollback immediately if any hard threshold fails in controlled corpus run or dur
 
 ## Rollback Command
 ```bash
-/Users/chadsimon/.claude/bin/route_rollback.sh
+~/.claude/bin/route_rollback.sh
 ```

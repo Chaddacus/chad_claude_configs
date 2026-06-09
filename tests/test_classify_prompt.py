@@ -76,6 +76,14 @@ class TestRouteClassification:
         assert result["route_hint"] == "R2"
         assert result["governance_recommended"] is False
 
+    def test_broad_feature_no_files_R3(self):
+        result = cp_module.classify_prompt(
+            "Add a gamified lesson streak feature with dashboard feedback and tests"
+        )
+        assert result["route_hint"] == "R3"
+        assert result["governance_recommended"] is True
+        assert "broad feature" in result["reason"]
+
     def test_long_prompt_R3(self):
         # 60 words, no files, no risk keywords
         words = " ".join(["refactor"] + ["the code structure"] * 20 + ["now"])

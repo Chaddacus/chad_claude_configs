@@ -93,19 +93,19 @@
       "id": "dod-1",
       "category": "correctness",
       "criterion": "Frontloaded planning artifacts and runtime compatibility checks validate deterministically.",
-      "verification": "python3.11 -m pytest /Users/chadsimon/.claude/skills/planning-gate/tests/test_validate_plan.py -k valid_plan"
+      "verification": "python3.11 -m pytest ~/.claude/skills/planning-gate/tests/test_validate_plan.py -k valid_plan"
     },
     {
       "id": "dod-2",
       "category": "tests",
       "criterion": "Automated tests cover compile, verify, and plan-validation failure modes.",
-      "verification": "python3.11 -m pytest /Users/chadsimon/.claude/skills/planning-gate/tests"
+      "verification": "python3.11 -m pytest ~/.claude/skills/planning-gate/tests"
     },
     {
       "id": "dod-3",
       "category": "security",
       "criterion": "Out-of-policy contracts and unstable IDs are blocked by deterministic validators.",
-      "verification": "python3.11 -m pytest /Users/chadsimon/.claude/skills/planning-gate/tests/test_control_plane_contracts.py -k runtime"
+      "verification": "python3.11 -m pytest ~/.claude/skills/planning-gate/tests/test_control_plane_contracts.py -k runtime"
     },
     {
       "id": "dod-4",
@@ -117,7 +117,7 @@
       "id": "dod-5",
       "category": "rollback",
       "criterion": "Revision and blocked paths preserve explicit unresolved-gap output without silent approval.",
-      "verification": "python3.11 -m pytest /Users/chadsimon/.claude/skills/planning-gate/tests/test_validate_plan.py -k revise"
+      "verification": "python3.11 -m pytest ~/.claude/skills/planning-gate/tests/test_validate_plan.py -k revise"
     }
   ],
   "objective_requirements": [
@@ -171,7 +171,7 @@
       "requirement_id": "req-compiler",
       "packet_ids": ["packet-compiler"],
       "verification": [
-        "python3.11 -m pytest /Users/chadsimon/.claude/skills/planning-gate/tests/test_control_plane_contracts.py -k plan"
+        "python3.11 -m pytest ~/.claude/skills/planning-gate/tests/test_control_plane_contracts.py -k plan"
       ],
       "evidence": [
         "planning_artifacts/<track-id>/plan.compiler.json"
@@ -181,7 +181,7 @@
       "requirement_id": "req-verifier",
       "packet_ids": ["packet-verifier"],
       "verification": [
-        "python3.11 -m pytest /Users/chadsimon/.claude/skills/planning-gate/tests/test_validate_plan.py -k valid_plan"
+        "python3.11 -m pytest ~/.claude/skills/planning-gate/tests/test_validate_plan.py -k valid_plan"
       ],
       "evidence": [
         "planning_artifacts/<track-id>/plan.sufficiency.json"
@@ -210,7 +210,7 @@
       "touchpoint": "planning-gate-validator",
       "packet_ids": ["packet-compiler", "packet-verifier"],
       "verification": [
-        "python3.11 -m pytest /Users/chadsimon/.claude/skills/planning-gate/tests"
+        "python3.11 -m pytest ~/.claude/skills/planning-gate/tests"
       ],
       "evidence": [
         "planning_artifacts/<track-id>/plan.coverage.json"
@@ -220,19 +220,19 @@
   "evidence_plan": [
     {
       "name": "compiler-artifact",
-      "verification": "python3.11 /Users/chadsimon/.claude/skills/planning-gate/scripts/compile_plan.py --plan-json /abs/path/plan.json --track-id task-123",
+      "verification": "python3.11 ~/.claude/skills/planning-gate/scripts/compile_plan.py --plan-json /abs/path/plan.json --track-id task-123",
       "evidence": "planning_artifacts/<track-id>/plan.compiler.json"
     },
     {
       "name": "sufficiency-artifact",
-      "verification": "python3.11 /Users/chadsimon/.claude/skills/planning-gate/scripts/verify_plan.py --plan-json /abs/path/plan.json --track-id task-123",
+      "verification": "python3.11 ~/.claude/skills/planning-gate/scripts/verify_plan.py --plan-json /abs/path/plan.json --track-id task-123",
       "evidence": "planning_artifacts/<track-id>/plan.sufficiency.json"
     }
   ],
   "dependencies": [],
   "tests": {
     "unit": [
-      "python3.11 -m pytest /Users/chadsimon/.claude/skills/planning-gate/tests"
+      "python3.11 -m pytest ~/.claude/skills/planning-gate/tests"
     ],
     "regression": [],
     "integration": [],
@@ -242,7 +242,7 @@
         "status": "pass",
         "criteria": "compiler contract is wired",
         "commands": [
-          "python3.11 -m pytest /Users/chadsimon/.claude/skills/planning-gate/tests/test_validate_plan.py -k valid_plan"
+          "python3.11 -m pytest ~/.claude/skills/planning-gate/tests/test_validate_plan.py -k valid_plan"
         ],
         "expected_output": "plan validation succeeds",
         "failure_interpretation": "frontloaded plan contract incomplete",
@@ -254,7 +254,7 @@
         "status": "pass",
         "criteria": "compiler and verifier scripts parse and run",
         "commands": [
-          "python3.11 -m py_compile /Users/chadsimon/.claude/skills/planning-gate/scripts/compile_plan.py /Users/chadsimon/.claude/skills/planning-gate/scripts/verify_plan.py"
+          "python3.11 -m py_compile ~/.claude/skills/planning-gate/scripts/compile_plan.py ~/.claude/skills/planning-gate/scripts/verify_plan.py"
         ],
         "expected_output": "compile and verify scripts compile",
         "failure_interpretation": "frontloaded planning scripts invalid",
@@ -266,7 +266,7 @@
         "status": "pass",
         "criteria": "validator suite covers sufficiency and runtime compatibility",
         "commands": [
-          "python3.11 -m pytest /Users/chadsimon/.claude/skills/planning-gate/tests/test_control_plane_contracts.py"
+          "python3.11 -m pytest ~/.claude/skills/planning-gate/tests/test_control_plane_contracts.py"
         ],
         "expected_output": "control-plane contract tests pass",
         "failure_interpretation": "contract regression",
@@ -278,7 +278,7 @@
         "status": "pass",
         "criteria": "plan artifacts and final plan approval path are deterministic",
         "commands": [
-          "python3.11 -m pytest /Users/chadsimon/.claude/skills/planning-gate/tests/test_validate_plan.py"
+          "python3.11 -m pytest ~/.claude/skills/planning-gate/tests/test_validate_plan.py"
         ],
         "expected_output": "validate_plan suite passes",
         "failure_interpretation": "plan approval path not deterministic",
@@ -353,7 +353,7 @@
   "migration_fallback_policy": {
     "compat_fallback_allowed": true,
     "max_fallback_invocations": 1,
-    "manifest_rollback_path": "/Users/chadsimon/.claude/bin/route_rollback.sh"
+    "manifest_rollback_path": "~/.claude/bin/route_rollback.sh"
   },
   "scheduler_policy": {
     "max_parallel_packets": 2,
@@ -458,7 +458,7 @@
       "item_id": "fm-1",
       "scenario": "Plan omits coverage for a required objective path.",
       "handling": "Reject during verify and surface unresolved-gap output.",
-      "verification": "python3.11 -m pytest /Users/chadsimon/.claude/skills/planning-gate/tests/test_compile_verify_plan.py -k unresolved_gaps"
+      "verification": "python3.11 -m pytest ~/.claude/skills/planning-gate/tests/test_compile_verify_plan.py -k unresolved_gaps"
     }
   ],
   "edge_case_matrix": [
@@ -466,7 +466,7 @@
       "item_id": "ec-1",
       "scenario": "Compact R2 plan still lacks a packet-local rollback path.",
       "handling": "Reject execution_ready status and force revise.",
-      "verification": "python3.11 -m pytest /Users/chadsimon/.claude/skills/planning-gate/tests/test_validate_plan.py -k valid_plan"
+      "verification": "python3.11 -m pytest ~/.claude/skills/planning-gate/tests/test_validate_plan.py -k valid_plan"
     }
   ],
   "packets": [
@@ -475,8 +475,8 @@
       "primary_behavior": "Compile the v2.7-aligned contract and stable IDs for the plan.",
       "execution_strategy": "command_capture",
       "strategy_inputs": {
-        "command": "python3.11 -m pytest /Users/chadsimon/.claude/skills/planning-gate/tests/test_control_plane_contracts.py -k plan",
-        "cwd": "/Users/chadsimon/.claude/skills/planning-gate/scripts"
+        "command": "python3.11 -m pytest ~/.claude/skills/planning-gate/tests/test_control_plane_contracts.py -k plan",
+        "cwd": "~/.claude/skills/planning-gate/scripts"
       },
       "execution_mode": "sequence_required",
       "packet_lane": "worker",
@@ -536,9 +536,9 @@
       "primary_behavior": "Verify frontloaded plan sufficiency and runtime compatibility.",
       "execution_strategy": "validation_command",
       "strategy_inputs": {
-        "command": "python3.11 -m pytest /Users/chadsimon/.claude/skills/planning-gate/tests/test_validate_plan.py -k valid_plan",
+        "command": "python3.11 -m pytest ~/.claude/skills/planning-gate/tests/test_validate_plan.py -k valid_plan",
         "validation_lane": "tests",
-        "cwd": "/Users/chadsimon/.claude/skills/planning-gate/scripts"
+        "cwd": "~/.claude/skills/planning-gate/scripts"
       },
       "execution_mode": "parallel_safe",
       "packet_lane": "validator",
@@ -722,10 +722,10 @@
     "checkpoint_required": true,
     "context_index_required": true,
     "bootstrap_commands": [
-      "python3.11 -m pytest /Users/chadsimon/.claude/skills/planning-gate/tests/test_validate_plan.py -k valid_plan"
+      "python3.11 -m pytest ~/.claude/skills/planning-gate/tests/test_validate_plan.py -k valid_plan"
     ],
     "validation_commands": [
-      "python3.11 -m pytest /Users/chadsimon/.claude/skills/planning-gate/tests"
+      "python3.11 -m pytest ~/.claude/skills/planning-gate/tests"
     ],
     "clean_state_assertions": [
       "Harness artifacts and packet IDs are resumable without chat history."

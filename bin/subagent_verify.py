@@ -14,7 +14,7 @@ from hook_profile import should_run
 if not should_run("subagent_verify"):
     sys.exit(0)
 
-LEDGER_PATH = f"/tmp/claude-verify-{os.environ.get('CLAUDE_SESSION_ID', 'default')}.json"
+from case_file import resolve_session_id, verify_ledger_path
 
 CODE_EXTENSIONS = {
     ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs",
@@ -36,12 +36,20 @@ def main():
     except (json.JSONDecodeError, IOError):
         sys.exit(0)
 
+    # Session-scoped ledger only. A shared fallback key let this hook block
+    # subagents with OTHER sessions' unverified edits (2026-06-09 incident,
+    # which trained an agent to game the gate). No session id → fail open.
+    sid = resolve_session_id(hook_input)
+    if not sid:
+        sys.exit(0)
+    ledger_path = verify_ledger_path(sid)
+
     # Check if ledger has unverified edits
-    if not os.path.exists(LEDGER_PATH):
+    if not ledger_path.exists():
         sys.exit(0)
 
     try:
-        with open(LEDGER_PATH, "r") as f:
+        with open(ledger_path, "r") as f:
             ledger = json.load(f)
     except (json.JSONDecodeError, IOError):
         sys.exit(0)

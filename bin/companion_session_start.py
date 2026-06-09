@@ -34,7 +34,7 @@ def main():
         return
 
     # Session boundary detection
-    session_id = os.environ.get('CLAUDE_SESSION_ID', '')
+    session_id = os.environ.get('CLAUDE_CODE_SESSION_ID') or os.environ.get('CLAUDE_SESSION_ID') or ''
     if state['session']['session_id'] != session_id:
         state['session']['session_id'] = session_id
         state['session']['xp_earned_this_session'] = 0

@@ -22,7 +22,7 @@ from hook_profile import should_run
 if not should_run("what_would_chad_do"):
     sys.exit(0)
 
-STATE_PATH = Path(f"/tmp/claude-wwcd-{os.environ.get('CLAUDE_SESSION_ID', 'default')}.json")
+STATE_PATH = Path(f"/tmp/claude-wwcd-{os.environ.get('CLAUDE_CODE_SESSION_ID') or os.environ.get('CLAUDE_SESSION_ID') or 'default'}.json")
 COOLDOWN_SECONDS = 90
 MAX_FILES = 8
 
@@ -114,7 +114,7 @@ def main() -> None:
         _hook_input = {}
 
     # Autonomous drive mode: bypass cooldown, use anticipation engine for specific next-step injection
-    drive_state_path = Path(f"/tmp/claude-drive-{os.environ.get('CLAUDE_SESSION_ID', 'default')}.json")
+    drive_state_path = Path(f"/tmp/claude-drive-{os.environ.get('CLAUDE_CODE_SESSION_ID') or os.environ.get('CLAUDE_SESSION_ID') or 'default'}.json")
     if drive_state_path.exists():
         engine_result = run_anticipation_engine()
         if engine_result:

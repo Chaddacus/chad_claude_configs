@@ -27,7 +27,12 @@ from score_experiment import compute_composite
 MATRIX_SCHEMA_VERSION = "benchmark-matrix.v1"
 DEFAULT_BENCHMARK_IDS = ("r3_rubik_app",)
 DEFAULT_PRESET_IDS = ("current", "baseline", "best")
-VALID_PRESET_IDS = frozenset(DEFAULT_PRESET_IDS)
+# `candidate` is a synthetic preset id used by `policy_edit_gate.py` (slice 6 of
+# the thoughts.md autonomy roadmap) to run the matrix against a candidate
+# ~/.claude home directory containing a proposed policy edit. It must be paired
+# with `--candidate-home <path>`. See ~/.claude/bin/policy_edit_gate.py.
+VALID_PRESET_IDS = frozenset(DEFAULT_PRESET_IDS) | {"candidate"}
+_CANDIDATE_HOME_OVERRIDE: Optional[Path] = None
 DEFAULT_REPEAT_COUNT = 3
 DEFAULT_MATRIX_ROOT = Path.home() / ".claude" / "state" / "autoconfig" / "benchmark-matrix"
 SCORING_MODE_REF = "/Users/chadsimon/.claude/skills/autoconfig/references/metric_spec.md"
@@ -119,6 +124,40 @@ def _resolve_commit_hash() -> Optional[str]:
 def _resolve_preset(preset_id: str) -> dict[str, Any]:
     if preset_id not in VALID_PRESET_IDS:
         raise ValueError(f"unknown_preset:{preset_id}")
+
+    if preset_id == "candidate":
+        # Slice 6: synthetic preset for policy-edit-gate. The caller stages a
+        # full ~/.claude tree under --candidate-home, applies the proposed diff
+        # there, and runs the matrix to compare candidate vs current.
+        if _CANDIDATE_HOME_OVERRIDE is None:
+            return {
+                "preset_id": preset_id,
+                "status": "error",
+                "preset_source": "candidate",
+                "source_home": None,
+                "config_hash": None,
+                "snapshot_meta": None,
+                "error": "candidate preset requires --candidate-home <path>",
+            }
+        source_home = _CANDIDATE_HOME_OVERRIDE.expanduser().resolve()
+        if not source_home.is_dir():
+            return {
+                "preset_id": preset_id,
+                "status": "error",
+                "preset_source": "candidate",
+                "source_home": str(source_home),
+                "config_hash": None,
+                "snapshot_meta": None,
+                "error": f"candidate-home not a directory: {source_home}",
+            }
+        return {
+            "preset_id": preset_id,
+            "status": "ok",
+            "preset_source": "candidate_home",
+            "source_home": str(source_home),
+            "config_hash": _config_hash_for_home(source_home),
+            "snapshot_meta": {"candidate": True},
+        }
 
     if preset_id == "current":
         source_home = SOURCE_CLAUDE_HOME.expanduser().resolve()
@@ -617,11 +656,20 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--preset", action="append", dest="preset_ids", choices=sorted(VALID_PRESET_IDS), help="Preset to compare. Repeat to add more.")
     parser.add_argument("--repeats", type=int, default=DEFAULT_REPEAT_COUNT, help="Attempt count per preset/variant.")
     parser.add_argument("--output-root", default=None, help="Optional matrix output root override.")
+    parser.add_argument(
+        "--candidate-home",
+        default=None,
+        help=("Path to a candidate ~/.claude tree (used by policy_edit_gate.py to score a proposed "
+              "policy diff). Required when --preset includes 'candidate'."),
+    )
     return parser
 
 
 def main() -> int:
+    global _CANDIDATE_HOME_OVERRIDE
     args = _parser().parse_args()
+    if args.candidate_home:
+        _CANDIDATE_HOME_OVERRIDE = Path(args.candidate_home).expanduser().resolve()
     payload = run_benchmark_matrix(
         benchmark_ids=args.benchmark_ids,
         preset_ids=args.preset_ids,

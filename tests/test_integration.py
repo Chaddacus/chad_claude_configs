@@ -62,6 +62,15 @@ class TestClassifyPromptRealWorld:
             f"(reason: {result['reason']})"
         )
 
+    def test_real_broad_feature_no_file_mentions(self):
+        result = cp_module.classify_prompt(
+            "Implement a customer onboarding workflow with dashboard feedback, persistence, and tests."
+        )
+        assert result["route_hint"] == "R3", (
+            f"Broad feature prompt should route to R3, got {result['route_hint']} "
+            f"(reason: {result['reason']})"
+        )
+
 
 # ===========================================================================
 # completion_gate — resolve_commands against real project directories
@@ -132,14 +141,22 @@ def test_allowed_subprocess(run_hook):
 # ===========================================================================
 
 
+def _verify_ledger_base() -> str:
+    """Ledger dir (see case_file.verify_ledger_path — moved out of /tmp
+    after the 2026-06-09 shared-key incident)."""
+    base = os.path.expanduser("~/.claude/state/verify-ledgers")
+    os.makedirs(base, exist_ok=True)
+    return base
+
+
 def _async_results_path(session_id: str) -> str:
     """Compute the async results path for a given session."""
-    return f"/tmp/claude-verify-async-{session_id}.json"
+    return os.path.join(_verify_ledger_base(), f"{session_id}-async.json")
 
 
 def _debounce_pid_path(session_id: str) -> str:
     """Compute the debounce PID path for a given session."""
-    return f"/tmp/claude-verify-debounce-{session_id}.pid"
+    return os.path.join(_verify_ledger_base(), f"{session_id}-debounce.pid")
 
 
 @pytest.mark.integration

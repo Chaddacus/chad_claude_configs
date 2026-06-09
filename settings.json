@@ -1,4 +1,17 @@
 {
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "env": {
+    "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "400000",
+    "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
+    "OTEL_METRICS_EXPORTER": "otlp",
+    "OTEL_LOGS_EXPORTER": "otlp",
+    "OTEL_EXPORTER_OTLP_PROTOCOL": "grpc",
+    "OTEL_EXPORTER_OTLP_ENDPOINT": "http://127.0.0.1:4317",
+    "OTEL_EXPORTER_OTLP_INSECURE": "true",
+    "OTEL_LOG_USER_PROMPTS": "1",
+    "OTEL_RESOURCE_ATTRIBUTES": "deployment.environment=local,collector.name=logging_and_metrics,agent.family=claude"
+  },
+  "includeCoAuthoredBy": false,
   "permissions": {
     "allow": [
       "Bash",
@@ -51,18 +64,28 @@
       "Bash(git push --force origin main)",
       "Bash(git push --force origin master)",
       "Bash(git push -f origin main)",
-      "Bash(git push -f origin master)"
+      "Bash(git push -f origin master)",
+      "Read(.env)",
+      "Read(.env.*)",
+      "Read(**/.env)",
+      "Read(**/.env.*)",
+      "Read(**/credentials)",
+      "Read(**/credentials.json)",
+      "Read(~/.ssh/id_*)",
+      "Read(~/.ssh/*_rsa)",
+      "Read(~/.ssh/*_ed25519)",
+      "Read(~/.aws/credentials)",
+      "Read(~/.aws/config)",
+      "Bash(cat .env*)",
+      "Bash(cat ~/.ssh/id_*)",
+      "Bash(cat ~/.aws/credentials)"
     ],
-    "defaultMode": "bypassPermissions"
+    "defaultMode": "auto"
   },
-  "env": {
-    "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "400000"
-  },
-  "includeCoAuthoredBy": false,
-  "statusLine": {
-    "type": "command",
-    "command": "ccstatusline"
-  },
+  "model": "claude-fable-5[1m]",
+  "fallbackModel": [
+    "claude-sonnet-4-6"
+  ],
   "hooks": {
     "Stop": [
       {
@@ -74,8 +97,38 @@
           },
           {
             "type": "command",
+            "command": "python3 /Users/chadsimon/.claude/bin/product_truth_auto_dispatch.py",
+            "timeout": 20
+          },
+          {
+            "type": "command",
             "command": "python3 /Users/chadsimon/.claude/bin/completion_gate.py --event stop",
             "timeout": 60
+          },
+          {
+            "type": "command",
+            "command": "python3 /Users/chadsimon/.claude/bin/stop_reason_telemetry.py",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "python3 /Users/chadsimon/.claude/bin/replan_evidence_check.py --strict",
+            "timeout": 8
+          },
+          {
+            "type": "command",
+            "command": "python3 /Users/chadsimon/.claude/bin/self_merge_check.py",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "python3 /Users/chadsimon/.claude/bin/stop_gate.py",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "python3 /Users/chadsimon/.claude/dandori/bin/hook_shadow_stop.py",
+            "timeout": 5
           }
         ]
       }
@@ -107,8 +160,18 @@
         "hooks": [
           {
             "type": "command",
+            "command": "python3 /Users/chadsimon/.claude/bin/idle_timing_hook.py",
+            "timeout": 3
+          },
+          {
+            "type": "command",
             "command": "python3 /Users/chadsimon/.claude/skills/govern/scripts/classify_prompt.py",
             "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "python3 /Users/chadsimon/.claude/bin/case_rotator.py",
+            "timeout": 3
           }
         ]
       }
@@ -123,6 +186,16 @@
             "timeout": 5
           }
         ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 /Users/chadsimon/.claude/bin/policy_edit_gate.py",
+            "timeout": 10
+          }
+        ]
       }
     ],
     "PostToolUse": [
@@ -133,6 +206,69 @@
             "type": "command",
             "command": "python3 /Users/chadsimon/.claude/bin/edit_verify_async.py",
             "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "python3 /Users/chadsimon/.claude/bin/agent_def_edit_warn.py",
+            "timeout": 3
+          },
+          {
+            "type": "command",
+            "command": "python3 /Users/chadsimon/.claude/bin/case_recorder.py",
+            "timeout": 3
+          },
+          {
+            "type": "command",
+            "command": "python3 /Users/chadsimon/.claude/dandori/bin/hook_record_edit.py",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 /Users/chadsimon/.claude/bin/compaction_suggester.py",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "python3 /Users/chadsimon/.claude/bin/case_recorder.py",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "PostCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 /Users/chadsimon/.claude/bin/compaction_suggester.py",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "WorktreeCreate": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /Users/chadsimon/.claude/hooks/worktree_create.sh",
+            "timeout": 60
+          }
+        ]
+      }
+    ],
+    "WorktreeRemove": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /Users/chadsimon/.claude/hooks/worktree_remove.sh",
+            "timeout": 30
           }
         ]
       }
@@ -145,6 +281,16 @@
             "type": "command",
             "command": "python3 /Users/chadsimon/.claude/bin/tool_failure_context.py",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "python3 /Users/chadsimon/.claude/bin/post_tool_use_failure_fal.py",
+            "timeout": 4
+          },
+          {
+            "type": "command",
+            "command": "python3 /Users/chadsimon/.claude/bin/case_recorder.py --failure",
+            "timeout": 3
           }
         ]
       }
@@ -156,6 +302,11 @@
             "type": "command",
             "command": "python3 /Users/chadsimon/.claude/bin/subagent_verify.py",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "python3 /Users/chadsimon/.claude/bin/stop_reason_telemetry.py",
+            "timeout": 5
           }
         ]
       }
@@ -163,6 +314,11 @@
     "SessionEnd": [
       {
         "hooks": [
+          {
+            "type": "command",
+            "command": "python3 /Users/chadsimon/.claude/bin/session_end_summary.py",
+            "timeout": 20
+          },
           {
             "type": "command",
             "command": "bash /Users/chadsimon/.claude/bin/notify_done.sh --status success --task session-end --channel desktop",
@@ -197,17 +353,132 @@
           }
         ]
       }
+    ],
+    "PermissionDenied": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 /Users/chadsimon/.claude/bin/permission_denied_retry.py",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "InstructionsLoaded": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 /Users/chadsimon/.claude/bin/instructions_loaded_log.py",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "ConfigChange": [
+      {
+        "matcher": "user_settings",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 /Users/chadsimon/.claude/bin/config_change_log.py",
+            "timeout": 3
+          }
+        ]
+      },
+      {
+        "matcher": "project_settings",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 /Users/chadsimon/.claude/bin/config_change_log.py",
+            "timeout": 3
+          }
+        ]
+      },
+      {
+        "matcher": "local_settings",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 /Users/chadsimon/.claude/bin/config_change_log.py",
+            "timeout": 3
+          }
+        ]
+      },
+      {
+        "matcher": "policy_settings",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 /Users/chadsimon/.claude/bin/config_change_log.py",
+            "timeout": 3
+          }
+        ]
+      },
+      {
+        "matcher": "skills",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 /Users/chadsimon/.claude/bin/config_change_log.py",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "FileChanged": [
+      {
+        "matcher": "settings.json",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -c '{ts: (now|todate), kind: \"file_changed\", source: \"filesystem\", file_path: (.file_path // .filename // \"unknown\"), event: \"FileChanged\"}' >> /Users/chadsimon/.claude/state/config-drift.jsonl 2>/dev/null || exit 0",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "CwdChanged": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -c '{ts: (now|todate), kind: \"cwd_changed\", from: (.previous_cwd // .from_cwd // null), to: (.cwd // .new_cwd // .to_cwd // \"unknown\")}' >> /Users/chadsimon/.claude/state/cwd-log.jsonl 2>/dev/null || exit 0",
+            "timeout": 3
+          }
+        ]
+      }
     ]
+  },
+  "worktree": {
+    "symlinkDirectories": [
+      "node_modules",
+      ".cache",
+      ".pnpm-store"
+    ]
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "ccstatusline"
   },
   "enabledPlugins": {
     "rust-analyzer-lsp@claude-plugins-official": true,
     "second-opinion@trailofbits": true,
     "static-analysis@trailofbits": false,
     "insecure-defaults@trailofbits": true,
-    "sharp-edges@trailofbits": true
+    "sharp-edges@trailofbits": true,
+    "frontend-design@claude-plugins-official": true
   },
+  "feedbackSurveyRate": 0,
+  "alwaysThinkingEnabled": true,
   "effortLevel": "xhigh",
+  "agent": "chad-twin",
   "skipDangerousModePermissionPrompt": true,
+  "remoteControlAtStartup": true,
+  "agentPushNotifEnabled": true,
+  "skipAutoPermissionPrompt": true,
   "autoCompact": true,
   "mcpServers": {}
 }

@@ -313,8 +313,12 @@ def test_malformed_stdin_exits_0(run_hook, session_id):
 
 
 def _async_results_path(session_id: str) -> str:
-    """Compute the async results path for a given session."""
-    return f"/tmp/claude-verify-async-{session_id}.json"
+    """Compute the async results path for a given session (see
+    case_file.verify_ledger_path — moved out of /tmp after the 2026-06-09
+    shared-key incident)."""
+    base = os.path.expanduser("~/.claude/state/verify-ledgers")
+    os.makedirs(base, exist_ok=True)
+    return os.path.join(base, f"{session_id}-async.json")
 
 
 @pytest.mark.unit

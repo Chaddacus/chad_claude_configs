@@ -23,7 +23,7 @@ except (json.JSONDecodeError, IOError):
 
 tool_name = hook_input.get("tool_name", "")
 tool_input = hook_input.get("tool_input", {})
-session_id = os.environ.get("CLAUDE_SESSION_ID", "unknown")
+session_id = os.environ.get("CLAUDE_CODE_SESSION_ID") or os.environ.get("CLAUDE_SESSION_ID") or "unknown"
 cwd = os.environ.get("PWD", os.getcwd())
 
 # Determine project scope from git remote

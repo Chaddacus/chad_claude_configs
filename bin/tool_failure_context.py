@@ -15,7 +15,11 @@ from hook_profile import should_run
 if not should_run("tool_failure_context"):
     sys.exit(0)
 
-LEDGER_PATH = f"/tmp/claude-verify-{os.environ.get('CLAUDE_SESSION_ID', 'default')}.json"
+from case_file import resolve_session_id, verify_ledger_path
+
+# Set in main() from the hook's stdin session_id. None → no edited-files
+# context (failure classification still works).
+LEDGER_PATH = None
 
 # Patterns for classifying failure types
 TEST_PATTERNS = [
@@ -39,7 +43,7 @@ GENERIC_ERROR_RE = re.compile(r"(?:error|Error|ERROR)[:]\s*(.+)")
 
 def load_edited_files() -> set:
     """Load list of recently edited files from the ledger."""
-    if not os.path.exists(LEDGER_PATH):
+    if not LEDGER_PATH or not os.path.exists(LEDGER_PATH):
         return set()
     try:
         with open(LEDGER_PATH, "r") as f:
@@ -135,6 +139,11 @@ def main():
         hook_input = json.loads(sys.stdin.read())
     except (json.JSONDecodeError, IOError):
         sys.exit(0)
+
+    sid = resolve_session_id(hook_input)
+    if sid:
+        global LEDGER_PATH
+        LEDGER_PATH = str(verify_ledger_path(sid))
 
     tool_name = hook_input.get("tool_name", "")
 

@@ -2117,7 +2117,7 @@ def build_evaluator_dispatch(
         "action": "evaluate",
         "track_id": track_id,
         "slice_id": slice_id,
-        "evaluator_model_hint": "claude-haiku-4-5",
+        "evaluator_model_hint": "haiku",
         "contract": {
             "objective": contract.get("objective", ""),
             "acceptance_criteria": contract.get("acceptance_criteria", []),
