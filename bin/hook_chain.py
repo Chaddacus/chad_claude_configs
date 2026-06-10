@@ -56,6 +56,7 @@ CHAINS = {
     "post-bash": [
         ("compaction_suggester.py", []),
         ("case_recorder.py", []),
+        ("secret_leak_warn.py", []),
     ],
     "post-failure": [
         ("tool_failure_context.py", []),
