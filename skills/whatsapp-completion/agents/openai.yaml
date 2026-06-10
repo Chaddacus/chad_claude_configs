@@ -1,4 +1,0 @@
-interface:
-  display_name: "WhatsApp Completion"
-  short_description: "Send completion WhatsApp via Cloud API"
-  default_prompt: "Use $whatsapp-completion to send a WhatsApp completion message when the task is done."

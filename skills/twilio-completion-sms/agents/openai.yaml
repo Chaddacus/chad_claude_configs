@@ -1,4 +1,0 @@
-interface:
-  display_name: "Twilio Completion SMS"
-  short_description: "Send task completion SMS via Twilio"
-  default_prompt: "Use $twilio-completion-sms to send a completion text when the task is done."
