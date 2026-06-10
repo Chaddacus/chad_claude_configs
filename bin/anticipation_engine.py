@@ -20,7 +20,8 @@ CONTINUE_THRESHOLD = 0.60
 
 
 def load_verify_ledger(session_id: str) -> dict:
-    path = Path(f"/tmp/claude-verify-{session_id}.json")
+    from case_file import verify_ledger_path
+    path = verify_ledger_path(session_id)
     try:
         return json.loads(path.read_text())
     except Exception:
@@ -127,7 +128,7 @@ def compute_next_step(session_id: str, cwd: str) -> dict:
 
 
 def main() -> None:
-    session_id = os.environ.get("CLAUDE_SESSION_ID", "default")
+    session_id = os.environ.get("CLAUDE_CODE_SESSION_ID") or os.environ.get("CLAUDE_SESSION_ID") or "default"
     cwd = os.getcwd()
     result = compute_next_step(session_id, cwd)
     print(json.dumps(result))

@@ -1,6 +1,7 @@
 ---
 name: refactor
 description: Analyze a codebase for quality issues across code smells, clean code, separation of concerns, modularity, and API-first design, then generate a prioritized refactoring report.
+context: fork
 policy_doc_kind: skill
 classification: canonical
 canonical_owner: self

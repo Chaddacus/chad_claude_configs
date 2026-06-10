@@ -517,6 +517,30 @@ def render_program_close_command(template: list[str], track_id: str) -> list[str
     return rendered
 
 
+def program_close_skip_reason(close_cmd: list[str], workspace_root: str) -> str | None:
+    """Return a skip reason when the close command cannot apply to this
+    workspace (npm-script gate in a non-npm repo). The global manifest
+    carries an npm-shaped default; failing closed in non-npm repos blocks
+    every track on a tooling mismatch rather than a real defect. Repos that
+    want the gate define the script (or override program_close_command)."""
+    if not close_cmd or close_cmd[0] != "npm":
+        return None
+    try:
+        script = close_cmd[close_cmd.index("run") + 1]
+    except (ValueError, IndexError):
+        return None
+    pkg = Path(workspace_root) / "package.json"
+    if not pkg.exists():
+        return f"skipped: close gate requires npm script '{script}' but workspace has no package.json"
+    try:
+        scripts = load_json(pkg).get("scripts", {})
+    except Exception:
+        return None
+    if script not in scripts:
+        return f"skipped: npm script '{script}' not defined in {pkg}"
+    return None
+
+
 def collect_program_close_blockers(report_path: Path, expected_track_id: str) -> list[str]:
     if not report_path.exists():
         return [f"missing_program_close_report:{report_path}"]
@@ -1433,34 +1457,48 @@ def main() -> int:
                         [str(item) for item in postflight_policy["program_close_command"]],
                         track_id,
                     )
-                    rc4, out4, err4, elapsed_ms4, _reason_code4 = run_gate_with_retry(
-                        close_cmd,
-                        args.timeout_sec,
-                        cwd=workspace_root,
-                    )
-                    stdout_log_path.write_text(stdout_log_path.read_text(encoding="utf-8") + out4, encoding="utf-8")
-                    stderr_log_path.write_text(stderr_log_path.read_text(encoding="utf-8") + err4, encoding="utf-8")
-                    try:
-                        close_report_path = resolve_program_close_report_path(
-                            workspace_root,
-                            artifacts_root,
-                            str(postflight_policy["program_close_report"]),
-                            track_id,
+                    close_skip = program_close_skip_reason(close_cmd, workspace_root)
+                    if close_skip:
+                        elapsed_ms4 = 0
+                        close_ok = True
+                        close_gate = GateResult(
+                            gate_name="program_close_gate",
+                            status="pass",
+                            reason_code="SKIPPED_NOT_APPLICABLE",
+                            reason=close_skip,
+                            missing_fields=[],
+                            blocked_fields=[],
+                            elapsed_ms=0,
                         )
-                        close_blockers = collect_program_close_blockers(close_report_path, track_id)
-                        close_ok = rc4 == 0 and len(close_blockers) == 0
-                    except Exception as exc:
-                        close_blockers = [safe_reason(str(exc))]
-                        close_ok = False
-                    close_gate = GateResult(
-                        gate_name="program_close_gate",
-                        status="pass" if close_ok else "blocked",
-                        reason_code="OK" if close_ok else "PROGRAM_NOT_CLOSED",
-                        reason="Program close gate passed" if close_ok else "Program close gate failed",
-                        missing_fields=[],
-                        blocked_fields=[] if close_ok else close_blockers,
-                        elapsed_ms=elapsed_ms4,
-                    )
+                    else:
+                        rc4, out4, err4, elapsed_ms4, _reason_code4 = run_gate_with_retry(
+                            close_cmd,
+                            args.timeout_sec,
+                            cwd=workspace_root,
+                        )
+                        stdout_log_path.write_text(stdout_log_path.read_text(encoding="utf-8") + out4, encoding="utf-8")
+                        stderr_log_path.write_text(stderr_log_path.read_text(encoding="utf-8") + err4, encoding="utf-8")
+                        try:
+                            close_report_path = resolve_program_close_report_path(
+                                workspace_root,
+                                artifacts_root,
+                                str(postflight_policy["program_close_report"]),
+                                track_id,
+                            )
+                            close_blockers = collect_program_close_blockers(close_report_path, track_id)
+                            close_ok = rc4 == 0 and len(close_blockers) == 0
+                        except Exception as exc:
+                            close_blockers = [safe_reason(str(exc))]
+                            close_ok = False
+                        close_gate = GateResult(
+                            gate_name="program_close_gate",
+                            status="pass" if close_ok else "blocked",
+                            reason_code="OK" if close_ok else "PROGRAM_NOT_CLOSED",
+                            reason="Program close gate passed" if close_ok else "Program close gate failed",
+                            missing_fields=[],
+                            blocked_fields=[] if close_ok else close_blockers,
+                            elapsed_ms=elapsed_ms4,
+                        )
                     base_result["gate_results"].append(close_gate.as_dict())
                     emit_ralph_meta(
                         telemetry_path=telemetry_path,
@@ -1471,7 +1509,7 @@ def main() -> int:
                         loop_idx=loop_idx,
                         gate="program_close_gate",
                         status="approve" if close_ok else "blocked",
-                        reason_code="OK" if close_ok else "PROGRAM_NOT_CLOSED",
+                        reason_code=close_gate.reason_code,
                         reason=close_gate.reason,
                         elapsed_ms=elapsed_ms4,
                         finalize_json_path=loop_finalize_repeat,

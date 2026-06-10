@@ -1,0 +1,54 @@
+# Phase-keyed question registry (Slice 2 — external).
+#
+# Schema is enforced by ~/.claude/bin/registry_lint.py. Bump
+# `registry_version` on any change to schema or question semantics.
+# Adding new questions is APPEND-only between versions (Slice 1b ship gate
+# is fixture-locked against current observable behavior).
+#
+# Validation:
+#   python3 ~/.claude/bin/registry_lint.py ~/.claude/policy/phase_questions.yaml
+#
+# Loader: auto_runtime_common.load_question_registry() with mtime cache;
+# falls back to QUESTION_REGISTRY_INLINE on missing file or parse error
+# (emits registry_load_failure event for postmortem).
+
+registry_version: v1
+
+phases:
+  discovery:
+    questions:
+      - id: prior_art
+        question: How do existing components in this repo solve this?
+        any_evidence_required:
+          - repo_search
+          - memory_lookup
+        targets_decision_kind: next_action
+        skip_when:
+          route_in:
+            - R1
+  build:
+    questions:
+      - id: simplest_path
+        question: Is this still the simplest path?
+        any_evidence_required:
+          - repo_search
+        targets_decision_kind: owned_files
+        skip_when:
+          route_in:
+            - R1
+
+loop_invariant:
+  triggers:
+    event_count_since_last: 5
+    on_route_promotion: true
+  max_invariant_tokens: 400
+  questions:
+    - id: premise_check
+      question: Did anything we just learned invalidate the plan?
+      any_evidence_required:
+        - memory_lookup
+        - event_log_diff
+      targets_decision_kind: next_action
+      skip_when:
+        route_in:
+          - R1

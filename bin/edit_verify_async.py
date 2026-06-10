@@ -25,9 +25,12 @@ if not should_run("edit_verify_async"):
 import sys
 import time
 
-LEDGER_PATH = f"/tmp/claude-verify-{os.environ.get('CLAUDE_SESSION_ID', 'default')}.json"
-ASYNC_RESULTS_PATH = f"/tmp/claude-verify-async-{os.environ.get('CLAUDE_SESSION_ID', 'default')}.json"
-DEBOUNCE_PID_PATH = f"/tmp/claude-verify-debounce-{os.environ.get('CLAUDE_SESSION_ID', 'default')}.pid"
+from case_file import resolve_session_id, verify_ledger_path, cleanup_verify_ledgers
+
+# Set in main() from the hook's stdin session_id. None → fail open (skip).
+LEDGER_PATH = None
+ASYNC_RESULTS_PATH = None
+DEBOUNCE_PID_PATH = None
 
 CODE_EXTENSIONS = {
     ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs",
@@ -212,6 +215,17 @@ def main():
         hook_input = json.loads(sys.stdin.read())
     except (json.JSONDecodeError, IOError):
         sys.exit(0)
+
+    sid = resolve_session_id(hook_input)
+    if not sid:
+        # No session identity — a shared ledger key caused the 2026-06-09
+        # cross-session contamination incident. Fail open.
+        sys.exit(0)
+    global LEDGER_PATH, ASYNC_RESULTS_PATH, DEBOUNCE_PID_PATH
+    LEDGER_PATH = str(verify_ledger_path(sid))
+    ASYNC_RESULTS_PATH = str(verify_ledger_path(sid, "-async"))
+    DEBOUNCE_PID_PATH = str(verify_ledger_path(sid, "-debounce.pid"))
+    cleanup_verify_ledgers()
 
     tool_name = hook_input.get("tool_name", "")
     tool_input = hook_input.get("tool_input", {})

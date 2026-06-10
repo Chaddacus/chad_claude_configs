@@ -1,25 +1,26 @@
 {
   "version": "route.v2",
-  "updated_at": "2026-04-16T00:00:00+00:00",
+  "updated_at": "2026-06-09T22:00:41.059773+00:00",
   "coordinator": {
-    "model": "claude-opus-4-6",
+    "model": "opus",
     "effort": "medium"
   },
   "profiles": {
     "worker": {
-      "model": "claude-sonnet-4-6",
-      "effort": "medium"
+      "model": "sonnet",
+      "effort": "medium",
+      "worker_runtime": "claude"
     },
     "explorer": {
-      "model": "claude-haiku-4-5",
+      "model": "haiku",
       "effort": "low"
     },
     "planner": {
-      "model": "claude-opus-4-7",
+      "model": "opus",
       "effort": "high"
     },
     "reviewer": {
-      "model": "claude-opus-4-7",
+      "model": "opus",
       "effort": "high"
     }
   },
@@ -32,7 +33,7 @@
       "execution_shape": "single_lane",
       "profile_overrides": {
         "coordinator": {
-          "model": "claude-sonnet-4-6",
+          "model": "sonnet",
           "effort": "medium"
         }
       }
@@ -48,11 +49,11 @@
       "max_parallel_packets": 2,
       "profile_overrides": {
         "coordinator": {
-          "model": "claude-sonnet-4-6",
+          "model": "sonnet",
           "effort": "medium"
         },
         "worker": {
-          "model": "claude-sonnet-4-6",
+          "model": "sonnet",
           "effort": "medium"
         }
       }
@@ -86,23 +87,23 @@
       "convergence_required_for_closure": true,
       "profile_overrides": {
         "planner": {
-          "model": "claude-opus-4-7",
+          "model": "opus",
           "effort": "high"
         },
         "worker": {
-          "model": "claude-sonnet-4-6",
+          "model": "sonnet",
           "effort": "medium"
         },
         "explorer": {
-          "model": "claude-haiku-4-5",
+          "model": "haiku",
           "effort": "low"
         },
         "validator": {
-          "model": "claude-haiku-4-5",
+          "model": "haiku",
           "effort": "medium"
         },
         "reviewer": {
-          "model": "claude-opus-4-7",
+          "model": "opus",
           "effort": "high"
         }
       }
@@ -137,23 +138,23 @@
       "convergence_required_for_closure": true,
       "profile_overrides": {
         "coordinator": {
-          "model": "claude-opus-4-6",
+          "model": "opus",
           "effort": "medium"
         },
         "worker": {
-          "model": "claude-sonnet-4-6",
+          "model": "sonnet",
           "effort": "medium"
         },
         "explorer": {
-          "model": "claude-haiku-4-5",
+          "model": "haiku",
           "effort": "low"
         },
         "validator": {
-          "model": "claude-haiku-4-5",
+          "model": "haiku",
           "effort": "medium"
         },
         "reviewer": {
-          "model": "claude-opus-4-7",
+          "model": "opus",
           "effort": "xhigh"
         }
       }
@@ -188,10 +189,30 @@
     "max_loops": 3,
     "gate_chain": [
       "validate_plan",
+      "test_breadth_check",
       "validate_impl",
       "planning_gate_finalize",
       "program_close_gate"
     ],
+    "test_breadth_check": {
+      "spec": "/Users/chadsimon/.claude/standards/testing-standard.md",
+      "ui_globs": [
+        "**/*.tsx",
+        "**/*.jsx",
+        "**/*.vue",
+        "**/*.svelte",
+        "**/app/**/page.*",
+        "**/pages/**"
+      ],
+      "data_combo_triggers": [
+        "**/openapi.{yaml,yml,json}",
+        "**/schema.graphql",
+        "**/validators/**",
+        "**/parsers/**",
+        "**/serializers/**"
+      ],
+      "adjacent_depth": 2
+    },
     "require_program_close": true,
     "program_close_command": [
       "npm",

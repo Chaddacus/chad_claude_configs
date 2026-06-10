@@ -21,17 +21,22 @@ def session_id():
 
 @pytest.fixture
 def ledger_path(session_id, tmp_path):
-    """Returns the temp ledger path for the current test; cleaned up after."""
-    path = f"/tmp/claude-verify-{session_id}.json"
+    """Returns the per-session ledger path for the current test; cleaned up after.
+
+    Ledgers live under ~/.claude/state/verify-ledgers/<session_id>.json since
+    the 2026-06-09 shared-key incident fix (see case_file.verify_ledger_path)."""
+    base = Path(os.path.expanduser("~/.claude/state/verify-ledgers"))
+    base.mkdir(parents=True, exist_ok=True)
+    path = str(base / f"{session_id}.json")
     yield path
     # Cleanup
-    for suffix in ["", "-async", "-debounce"]:
-        p = f"/tmp/claude-verify{suffix}-{session_id}.json"
-        if os.path.exists(p):
-            os.unlink(p)
-    pid_path = f"/tmp/claude-verify-debounce-{session_id}.pid"
-    if os.path.exists(pid_path):
-        os.unlink(pid_path)
+    for suffix in ["", "-async"]:
+        p = base / f"{session_id}{suffix}.json"
+        if p.exists():
+            p.unlink()
+    pid_path = base / f"{session_id}-debounce.pid"
+    if pid_path.exists():
+        pid_path.unlink()
 
 
 @pytest.fixture
@@ -62,6 +67,10 @@ def run_hook(session_id):
     """Runs a hook script as subprocess, returns {stdout, stderr, exit_code, parsed_json}."""
     def _run(script_path, stdin_json=None, env=None, args=None, timeout=10):
         run_env = os.environ.copy()
+        # Pin BOTH session vars — the canonical CLI var (CLAUDE_CODE_SESSION_ID)
+        # outranks the legacy one in case_file.resolve_session_id, and a real
+        # value can leak in from the invoking Claude session's environment.
+        run_env["CLAUDE_CODE_SESSION_ID"] = session_id
         run_env["CLAUDE_SESSION_ID"] = session_id
         if env:
             run_env.update(env)

@@ -332,7 +332,10 @@ def test_invalid_rejected(run_hook):
 
 @pytest.mark.unit
 def test_event_in_envelope(run_hook, make_ledger, fake_project, monkeypatch):
-    """hookEventName should use underscores (task_completed), not hyphens."""
+    """task-completed runs emit a PostToolUse-shaped hookSpecificOutput
+    envelope with additionalContext (completion_gate.py's documented
+    contract). This test previously asserted "task_completed", a value the
+    code never emitted — fixed 2026-06-09 to assert the actual contract."""
     make_ledger(
         edits=[{"file": "main.py", "timestamp": 200}],
         last_edit_at=200,
@@ -346,4 +349,5 @@ def test_event_in_envelope(run_hook, make_ledger, fake_project, monkeypatch):
     result = run_hook(COMPLETION_GATE, args=["--event", "task-completed"])
     assert result["parsed_json"] is not None
     hook_output = result["parsed_json"]["hookSpecificOutput"]
-    assert hook_output["hookEventName"] == "task_completed"
+    assert hook_output["hookEventName"] == "PostToolUse"
+    assert hook_output["additionalContext"].strip() != ""

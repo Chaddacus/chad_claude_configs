@@ -1,7 +1,7 @@
 {
   "version": "governed.v2.7",
   "runtime_home_policy": {
-    "canonical_home": "/Users/chadsimon/.claude",
+    "canonical_home": "~/.claude",
     "mixed_home_policy": "fail_closed",
     "noncanonical_override_env": "CLAUDE_ALLOW_NONCANONICAL_HOME_FOR_TESTS",
     "required_runtime_files": [

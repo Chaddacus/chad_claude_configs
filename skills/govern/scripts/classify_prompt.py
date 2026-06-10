@@ -114,6 +114,30 @@ def _count_weak_matches(text: str, keywords: set) -> int:
     )
 
 
+def is_broad_feature_prompt(text: str) -> bool:
+    """Detect broad feature work even when no files are named."""
+    text_lower = text.lower()
+    implementation_verbs = {
+        "add", "build", "create", "implement", "refactor", "redesign",
+    }
+    feature_scope_signals = {
+        "feature", "workflow", "dashboard", "frontend", "backend", "api",
+        "persistence", "tests", "integration", "documentation", "app",
+    }
+    has_verb = any(
+        re.search(r'\b' + re.escape(verb) + r'\b', text_lower)
+        for verb in implementation_verbs
+    )
+    has_scope_signal = any(
+        re.search(r'\b' + re.escape(signal) + r'\b', text_lower)
+        for signal in feature_scope_signals
+    )
+    has_module_boundary_signal = bool(
+        re.search(r"\bmodule\s+boundar(?:y|ies)\b", text_lower)
+    )
+    return has_verb and (has_scope_signal or has_module_boundary_signal)
+
+
 def classify_prompt(prompt: str) -> dict:
     """Fast heuristic classification of a user prompt."""
     if not prompt or not prompt.strip():
@@ -171,6 +195,9 @@ def classify_prompt(prompt: str) -> dict:
             touches_auth or touches_security or touches_deploy or file_count > 0
         )
     )
+    if touches_auth_weak and touches_migration_weak:
+        touches_auth = True
+        touches_migrations = True
 
     high_risk = touches_auth or touches_security or touches_migrations
     # Production incidents with data/security signals are R4
@@ -179,6 +206,7 @@ def classify_prompt(prompt: str) -> dict:
 
     # Check for simple/factual queries
     is_simple = any(prompt_lower.startswith(ind) for ind in SIMPLE_INDICATORS)
+    broad_feature = is_broad_feature_prompt(prompt)
 
     # Check for explicit /govern invocation
     if prompt_lower.startswith("/govern"):
@@ -209,6 +237,14 @@ def classify_prompt(prompt: str) -> dict:
             "route_hint": "R4",
             "governance_recommended": True,
             "reason": f"high-risk: {', '.join(reason_parts)}",
+        }
+
+    # R3: broad feature/workflow work requires planning even without file mentions.
+    if broad_feature:
+        return {
+            "route_hint": "R3",
+            "governance_recommended": True,
+            "reason": "broad feature/workflow implementation",
         }
 
     # R2: small scope, no risk
@@ -263,6 +299,10 @@ R3_R4_GOVERNANCE_GATES = """## R3/R4 governed-lanes gates
 
 - Use the governed path: run omni-mem retrieval, use planning-gate skill, satisfy prompt-contract requirements, run validation before closeout.
 - R3/R4 require planning-gate and Ralph postflight.
+- Align before broad execution: explore repo facts first, then resolve only the product/authority ambiguity that cannot be discovered locally.
+- Convert broad work into PRD/story-shaped slices when useful, but revalidate old PRDs, plans, and issue text against current code before trusting them.
+- Prefer vertical slices/tracer bullets over horizontal database-then-API-then-UI phases unless dependencies force a horizontal step.
+- Keep architecture explicit: identify modules/interfaces expected to change, prefer deep modules with simple testable boundaries, and avoid scattering behavior across shallow helpers.
 - R3 defaults to execution_shape=single_lane; bounded_swarm requires explicit justification and reuse-first proof.
 - R4 may use a reviewer-centered bounded_swarm with the same justification requirements.
 - Plans must include a solution ladder (L1_patch, L2_abstraction, L3_operating_surface) and select the highest useful layer.
@@ -270,6 +310,44 @@ R3_R4_GOVERNANCE_GATES = """## R3/R4 governed-lanes gates
 - Plans that exceed the simplicity budget or introduce a new runtime surface without proof must fail closed.
 - finalize_gate.py must return ok=true before R3/R4 work is treated as approved.
 - For R3/R4, produce a manual enterprise scorecard if no automated rubric tool exists."""
+
+
+# Product-trigger keywords for product-orchestrator nudge. Mirrored in
+# ~/.claude/bin/product_truth_auto_dispatch.py — keep in sync.
+PRODUCT_TRIGGER_RE = re.compile(
+    r"\b("
+    r"product"
+    r"|launch(?:ed|ing)?"
+    r"|release"
+    r"|landing\s+page"
+    r"|positioning"
+    r"|pitch"
+    r"|marketing"
+    r"|claim"
+    r"|differentiation"
+    r"|wedge"
+    r"|truth\s+layer"
+    r"|prove[\s-]?it"
+    r")\b",
+    re.IGNORECASE,
+)
+PRODUCT_TRIGGER_HITS_REQUIRED = 2
+
+PRODUCT_TRIGGER_NUDGE = """[product-trigger] This prompt looks product-shaped. The Stop hook at \
+~/.claude/bin/product_truth_auto_dispatch.py will block close unless \
+~/.claude/state/product_truth/<slug>.json exists and product_truth_check.py passes. \
+Dispatch the product-orchestrator agent via Task tool to scaffold/update the truth layer. \
+Bypass for this session: export OMNI_MEM_PRODUCT_TRUTH_BYPASS=1."""
+
+
+def product_trigger_block(prompt: str) -> str:
+    """Return the product-trigger nudge string if prompt has ≥2 keyword hits."""
+    if not prompt:
+        return ""
+    hits = len(PRODUCT_TRIGGER_RE.findall(prompt))
+    if hits >= PRODUCT_TRIGGER_HITS_REQUIRED:
+        return PRODUCT_TRIGGER_NUDGE
+    return ""
 
 
 def route_policy_block(result: dict) -> str:
@@ -295,7 +373,7 @@ def main():
     result = classify_prompt(prompt)
 
     # Write route to session-scoped temp file for downstream hook profile gating
-    route_file = f"/tmp/claude-route-{os.environ.get('CLAUDE_SESSION_ID', 'default')}.json"
+    route_file = f"/tmp/claude-route-{os.environ.get('CLAUDE_CODE_SESSION_ID') or os.environ.get('CLAUDE_SESSION_ID') or 'default'}.json"
     try:
         with open(route_file, "w") as f:
             json.dump(result, f)
@@ -308,7 +386,14 @@ def main():
         f"reason={result['reason']}"
     )
     policy = route_policy_block(result)
-    context = status if not policy else f"{status}\n\n{policy}"
+    product_nudge = product_trigger_block(prompt)
+
+    pieces = [status]
+    if policy:
+        pieces.append(policy)
+    if product_nudge:
+        pieces.append(product_nudge)
+    context = "\n\n".join(pieces)
 
     envelope = {
         "hookSpecificOutput": {

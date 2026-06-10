@@ -1,6 +1,7 @@
 ---
 description: Run pre-commit checks, create a commit, push to a non-main branch, and open a PR.
 argument-hint: "[commit message]"
+allowed-tools: Bash, Read
 ---
 
 # /commit-push-pr

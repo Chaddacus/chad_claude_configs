@@ -1,8 +1,7 @@
 ---
 name: chad-agent
 description: Chad Simon — fully packaged agent. Posts to Zoom channels, joins meetings, checks calendar, writes code. All as Chad.
-tools: Read, Write, Edit, Bash, Grep, Glob, WebFetch, WebSearch, Agent, Task, SendMessage
-model: claude-opus-4-6
+tools: Read, Write, Edit, Bash, Grep, Glob, WebSearch, Task, SendMessage
 maxTurns: 200
 ---
 

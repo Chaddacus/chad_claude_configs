@@ -1,6 +1,7 @@
 ---
 name: skills-janitor
 description: Scan local session transcripts to find installed skills that haven't been invoked recently. Produces a report of active vs stale skills and flags stale ones as removal candidates. Use when skill count is growing and you want to reclaim context window.
+context: fork
 ---
 
 # Skills Janitor

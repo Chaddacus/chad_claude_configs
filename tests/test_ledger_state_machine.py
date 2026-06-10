@@ -115,6 +115,7 @@ def test_gate_after_dirty(run_hook, ledger_path, fake_project, session_id):
 
     # Run completion gate directly with cwd set to the fake project
     env = os.environ.copy()
+    env["CLAUDE_CODE_SESSION_ID"] = session_id
     env["CLAUDE_SESSION_ID"] = session_id
     result = subprocess.run(
         [sys.executable, str(COMPLETION_GATE), "--event", "task-completed"],
@@ -216,6 +217,7 @@ def test_full_workflow(run_hook, ledger_path, fake_project, session_id):
     project_dir = fake_project({"Makefile": "\ntest:\n\techo ok\n"})
 
     env = os.environ.copy()
+    env["CLAUDE_CODE_SESSION_ID"] = session_id
     env["CLAUDE_SESSION_ID"] = session_id
     result = subprocess.run(
         [sys.executable, str(COMPLETION_GATE), "--event", "task-completed"],

@@ -8,6 +8,16 @@ hookSpecificOutput.additionalContext.
 
 Fails silently on any error — the session must never fail to start because of
 this hook.
+
+Environment:
+  OMNI_MEM_REPO_ROOT         Path to the omni-mem checkout. Defaults to the
+                             parent of the directory containing this script.
+  OMNI_MEM_CLOUD_URL         Cloud rendezvous URL.
+  OMNI_MEM_MANAGER_USER_ID   Caller's tailnet identity (lowercased email).
+
+If OMNI_MEM_CLOUD_URL / OMNI_MEM_MANAGER_USER_ID are missing from the hook's
+environment, we fall back to the env block of the `omni-mem-manage` MCP server
+entry in ~/.mcp.json so this hook stays in sync with the MCP server config.
 """
 from __future__ import annotations
 
@@ -15,19 +25,20 @@ import json
 import os
 import subprocess
 import sys
+from pathlib import Path
 from typing import Any
 
 TIMEOUT_SECONDS = 10
-DEFAULT_REPO_ROOT = "/Users/chadsimon/code/omni-mem"
 MAX_ENTRIES = 8
 TERMINAL_STATES = {"completed", "failed", "rejected"}
 
 
-def render_inbox(report: Any) -> str | None:
-    """Pure function: turn an inbox report dict into a compact summary string.
+def _default_repo_root() -> str:
+    """Resolve the omni-mem repo root from this script's location."""
+    return str(Path(__file__).resolve().parent.parent)
 
-    Returns None if the report is unusable or contains no actionable tasks.
-    """
+
+def render_inbox(report: Any) -> str | None:
     if not isinstance(report, dict):
         return None
     assignee = report.get("assignee")
@@ -66,13 +77,9 @@ def render_inbox(report: Any) -> str | None:
     return "\n".join(lines)
 
 
-def _load_mcp_env_fallback(path: str = "/Users/chadsimon/.mcp.json") -> dict[str, str]:
-    """Read OMNI_MEM_* env vars from the omni-mem-manage MCP server config.
-
-    Hooks don't inherit Chad's shell rc exports, but `~/.mcp.json` already
-    carries the canonical config for the MCP server. Pull the env block from
-    there as a fallback so the hook and the MCP server stay in sync.
-    """
+def _load_mcp_env_fallback(path: str | None = None) -> dict[str, str]:
+    if path is None:
+        path = os.path.expanduser("~/.mcp.json")
     try:
         with open(path, encoding="utf-8") as f:
             data = json.load(f)
@@ -85,15 +92,12 @@ def _load_mcp_env_fallback(path: str = "/Users/chadsimon/.mcp.json") -> dict[str
 
 
 def _fetch_inbox() -> dict[str, Any] | None:
-    """Shell out to the management-mcp CLI and return the parsed inbox report."""
-    repo_root = os.environ.get("OMNI_MEM_REPO_ROOT", DEFAULT_REPO_ROOT)
+    repo_root = os.environ.get("OMNI_MEM_REPO_ROOT", _default_repo_root())
     script = os.path.join(repo_root, "scripts", "omni-mem-manage.ts")
     if not os.path.exists(script):
         return None
     env = {**os.environ}
     if "OMNI_MEM_CLOUD_URL" not in env or "OMNI_MEM_MANAGER_USER_ID" not in env:
-        # Hooks don't inherit shell rc exports; fall back to the config shared
-        # with the MCP server.
         fallback = _load_mcp_env_fallback()
         for key, value in fallback.items():
             env.setdefault(key, value)
@@ -120,7 +124,7 @@ def _fetch_inbox() -> dict[str, Any] | None:
 
 def main() -> int:
     try:
-        _ = sys.stdin.read()  # consume hook input; we don't use it
+        _ = sys.stdin.read()
     except Exception:
         pass
 

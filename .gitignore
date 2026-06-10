@@ -23,6 +23,9 @@
 !/sounds/
 !/mcp-servers/
 !/tests/
+!/rules/
+# rules/legacy-reference is local-only; the rest of rules/ is tracked
+/rules/legacy-reference/
 
 # Custom scripts
 !/bin/
@@ -41,6 +44,21 @@
 /plugins/*
 !/plugins/installed_plugins.json
 !/plugins/blocklist.json
+
+# Policy — versioned policy/registry artifacts (pre-registered hypotheses,
+# phase question registry, etc.). Tracked fully because changes here are
+# binding architectural decisions.
+!/policy/
+
+# Bench — validation tooling (analyze.py) + immutable baseline corpus for
+# Layer-3 outcome validation per plan-final §7. Tracked fully.
+!/bench/
+
+# Plans — local-only by default; named plans that are decision records for
+# committed changes are unignored individually.
+!/plans/
+/plans/*
+!/plans/global-config-improvement-plan-2026-06-09.md
 
 # ====================================================================
 # Paranoid denies (catch anything sneaked into tracked dirs)

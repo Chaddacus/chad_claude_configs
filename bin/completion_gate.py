@@ -24,7 +24,10 @@ _event = "stop" if "--event" in sys.argv and "stop" in sys.argv else "task"
 if not should_run(f"completion_gate_{_event}"):
     sys.exit(0)
 
-LEDGER_PATH = f"/tmp/claude-verify-{os.environ.get('CLAUDE_SESSION_ID', 'default')}.json"
+from case_file import resolve_session_id, verify_ledger_path
+
+# Set in main() from the hook's stdin session_id. None → fail open (skip).
+LEDGER_PATH = None
 CODE_EXTENSIONS = {
     ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs",
     ".py", ".pyw",
@@ -42,7 +45,7 @@ MAX_OUTPUT_LINES = 30
 
 def load_ledger() -> dict:
     """Load the verification-evidence ledger."""
-    if not os.path.exists(LEDGER_PATH):
+    if not LEDGER_PATH or not os.path.exists(LEDGER_PATH):
         return {
             "edits": [],
             "verifications": [],
@@ -65,6 +68,8 @@ def load_ledger() -> dict:
 
 def save_ledger(ledger: dict) -> None:
     """Save the verification-evidence ledger."""
+    if not LEDGER_PATH:
+        return
     try:
         with open(LEDGER_PATH, "w") as f:
             json.dump(ledger, f, indent=2)
@@ -207,6 +212,18 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--event", choices=["task-completed", "stop"], required=True)
     args = parser.parse_args()
+
+    # Hook input arrives on stdin; session_id scopes the ledger. Without a
+    # session id, skip rather than touch a shared key (2026-06-09 incident).
+    try:
+        hook_input = json.loads(sys.stdin.read() or "{}")
+    except (json.JSONDecodeError, IOError):
+        hook_input = {}
+    sid = resolve_session_id(hook_input)
+    if not sid:
+        sys.exit(0)
+    global LEDGER_PATH
+    LEDGER_PATH = str(verify_ledger_path(sid))
 
     ledger = load_ledger()
 

@@ -120,6 +120,23 @@ Conditional plan sections:
   - `forbidden_growth`
   - `simplicity_tripwires`
 
+Production-readiness conditional contracts:
+- For plans whose `implementation_plan` modifies persisted state, external systems, or user-visible data, `rollback_plan` must define:
+  - `automation_level` (one of `automatic`, `semi_automatic`, `manual`)
+  - `compensating_transaction_strategy` (how mid-transaction failures are reversed)
+  - `compensating_transaction_tests` (at least one executable test that simulates a mid-transaction failure and verifies the compensation path; the test name(s) must also appear under `tests`)
+  - For `automation_level=manual`, `manual_rollback_justification` must explain why automation is infeasible.
+- For plans whose scope touches observability surfaces (telemetry pipelines, metrics, logging surfaces, autonomous execution dashboards) or autonomous execution control (`route_manifest.json`, dispatch policy, governance gates), `definition_of_done[]` entries with `category=observability` must define:
+  - `alert_configuration` (alert rule name, threshold, notification channel)
+  - `alert_reachability_check` (command or artifact path the postflight pass uses to verify the alert rule is reachable before marking the plan complete)
+- For `R3`/`R4` plans, every `solution_ladder` entry (`L1_patch`, `L2_abstraction`, `L3_operating_surface`) must define `graceful_degradation_strategy`: how the proposed layer behaves when a non-critical dependency is unavailable. Valid values:
+  - `partial_result_with_warning`
+  - `cached_fallback`
+  - `degrade_to_lower_layer`
+  - `hard_fail_with_clear_error`
+  - `not_applicable_with_justification`
+  The `chosen_layer`'s strategy must be consistent with the plan's `risk_class` (e.g. `high`-risk plans cannot select `hard_fail_with_clear_error` without explicit justification under `layer_justification`).
+
 Route-conditioned planning layer rule:
 - `R3`/`R4` plans must include:
   - `execution_shape`
@@ -172,6 +189,10 @@ Route-conditioned planning layer rule:
   - a read contract omits explicit read-only semantics
   - frozen surfaces are not enumerated
   - over-engineering tripwires or deferred surfaces are missing for a thin-slice plan
+  - the plan modifies persisted state, external systems, or user-visible data but `rollback_plan.automation_level` or `compensating_transaction_strategy` is missing
+  - the plan modifies persisted state but `compensating_transaction_tests` is missing or the named tests are absent from `tests`
+  - the plan touches observability or autonomous-execution surfaces but `definition_of_done[]` `observability` category entries lack `alert_configuration` or `alert_reachability_check`
+  - an `R3`/`R4` `solution_ladder` entry lacks `graceful_degradation_strategy`, or the `chosen_layer`'s strategy is inconsistent with the plan's `risk_class` without `layer_justification`
 
 Frontloaded planning alignment:
 - Frontloaded Planning v2.5 is the pre-execution planning layer for Proxy-Managed Autonomous Completion v2.7.

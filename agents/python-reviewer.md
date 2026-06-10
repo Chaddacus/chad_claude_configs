@@ -2,7 +2,8 @@
 name: python-reviewer
 description: Python code reviewer for PEP 8, type hints, security, Pythonic patterns, and framework-specific checks. Use for Python code changes.
 tools: Read, Grep, Glob, Bash
-model: claude-opus-4-7
+model: opus
+effort: max
 maxTurns: 15
 isolation: worktree
 ---

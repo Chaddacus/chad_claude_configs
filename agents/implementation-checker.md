@@ -2,7 +2,7 @@
 name: implementation-checker
 description: Scan a worker's diff for stubs and placeholder implementations. Runs between worker and reviewer to catch translations/edits that "pass" trivially but left work undone. Based on ORBIT's Implementation Checker agent.
 tools: Read, Bash, Grep, Glob
-model: claude-haiku-4-5
+model: haiku
 maxTurns: 8
 effort: low
 sandbox: read-only

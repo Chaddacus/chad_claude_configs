@@ -1,6 +1,7 @@
 ---
 name: daily-tech-brief
 description: Generate a TLDR-style daily tech brief covering AI, developer tooling, GitHub repos, and research papers, then map the result back to the current Codex setup.
+context: fork
 policy_doc_kind: skill
 classification: canonical
 canonical_owner: self

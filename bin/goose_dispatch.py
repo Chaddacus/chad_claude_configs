@@ -517,7 +517,10 @@ def resolve_verify_cmd(args: argparse.Namespace, workspace: Path) -> str:
             raise SystemExit(f"--acceptance-script not found: {script}")
         if not os.access(script, os.X_OK):
             raise SystemExit(f"--acceptance-script not executable: {script}")
-        return str(script)
+        cmd = shlex.quote(str(script))
+        if args.preset_args and args.preset_args.strip():
+            cmd += " " + args.preset_args.strip()
+        return cmd
     if args.verify_preset:
         preset = PRESETS_DIR / f"{args.verify_preset}.sh"
         if not preset.exists():
@@ -597,7 +600,25 @@ def main() -> int:
         return 3
 
     # ---- Auto-preflight (P3/P6) ---------------------------------------
-    if not args.no_preflight:
+    # Skip preflight automatically when goose is configured for an
+    # account-backed ACP provider (codex-acp, claude-code, etc.) — the
+    # default preflight checks LM Studio or env API keys, neither of which
+    # apply to ACP bridges. The caller can still force preflight by
+    # explicitly leaving --no-preflight off after setting CW_GOOSE_MODE=local.
+    auto_skip_preflight = False
+    try:
+        cfg_path = Path.home() / ".config" / "goose" / "config.yaml"
+        if cfg_path.is_file():
+            for line in cfg_path.read_text().splitlines():
+                if line.startswith("GOOSE_PROVIDER:"):
+                    provider = line.split(":", 1)[1].strip().strip('"').strip("'")
+                    if provider.endswith("-acp") or provider in {"codex-acp", "claude-code"}:
+                        auto_skip_preflight = True
+                    break
+    except Exception:  # noqa: BLE001
+        pass
+
+    if not args.no_preflight and not auto_skip_preflight:
         ok, out = run_preflight(log_file)
         if not ok:
             _emit({

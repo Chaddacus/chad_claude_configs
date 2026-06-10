@@ -24,17 +24,21 @@ ROUTE_TO_PROFILE = {
 }
 
 PROFILES = {
-    "minimal": {"session_startup", "notify_done", "completion_gate_stop", "pre_tool_guard"},
+    # secret_leak_warn is a security tripwire — enabled in every profile,
+    # same posture as pre_tool_guard.
+    "minimal": {"session_startup", "notify_done", "completion_gate_stop", "pre_tool_guard",
+                "secret_leak_warn"},
     "standard": {
         "session_startup", "notify_done", "completion_gate_stop", "pre_tool_guard",
         "classify_prompt", "edit_verify_async", "completion_gate_task",
         "subagent_verify", "tool_failure_context", "what_would_chad_do",
-        "codex_review_gate",
+        "codex_review_gate", "replan_evidence_check", "self_merge_check",
+        "secret_leak_warn",
     },
     "strict": None,  # None = all hooks enabled
 }
 
-_ROUTE_FILE = Path(f"/tmp/claude-route-{os.environ.get('CLAUDE_SESSION_ID', 'default')}.json")
+_ROUTE_FILE = Path(f"/tmp/claude-route-{os.environ.get('CLAUDE_CODE_SESSION_ID') or os.environ.get('CLAUDE_SESSION_ID') or 'default'}.json")
 
 
 def _get_profile() -> str:

@@ -2,7 +2,8 @@
 name: typescript-reviewer
 description: TypeScript/JavaScript code reviewer for type safety, async correctness, security, and idiomatic patterns. Use for TS/JS code changes.
 tools: Read, Grep, Glob, Bash
-model: claude-opus-4-7
+model: opus
+effort: max
 maxTurns: 15
 isolation: worktree
 ---

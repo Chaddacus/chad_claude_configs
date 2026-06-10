@@ -14,11 +14,11 @@ Operational runbook for Postflight Completion Gate (Ralph Loop) enforcement on `
 Auto-continue is enforced for `codex exec` finalize flows.
 
 ## Files
-- Wrapper: `/Users/chadsimon/.claude/bin/claude_run`
-- Gate engine: `/Users/chadsimon/.claude/bin/ralph_done_loop.py`
-- CI predicate checker: `/Users/chadsimon/.claude/bin/postflight_acceptance_check.py`
-- Route telemetry extractor: `/Users/chadsimon/.claude/bin/route_audit_extract.sh`
-- Config: `/Users/chadsimon/.claude/state/route_manifest.json`
+- Wrapper: `~/.claude/bin/claude_run`
+- Gate engine: `~/.claude/bin/ralph_done_loop.py`
+- CI predicate checker: `~/.claude/bin/postflight_acceptance_check.py`
+- Route telemetry extractor: `~/.claude/bin/route_audit_extract.sh`
+- Config: `~/.claude/state/route_manifest.json`
 
 ## Modes
 - `audit`:
@@ -42,7 +42,7 @@ For `--finalize-attempt` with `R3/R4`, non-`exec` invocation is rejected:
 ## Rollout
 1. Bind default `codex` entrypoint to wrapper shim:
    - `which codex`
-   - expected: `/Users/chadsimon/.local/bin/codex`
+   - expected: `~/.local/bin/codex`
 2. Set `postflight.mode` to `audit`.
 3. Run for a short canary window and collect `ralph-meta` telemetry.
 4. Confirm parse errors and branch predicate failures are zero (or explained).
@@ -55,11 +55,11 @@ which codex
 echo "$CLAUDE_HOME"
 
 # Script syntax checks.
-bash -n /Users/chadsimon/.claude/bin/claude_run
-python3 -m py_compile /Users/chadsimon/.claude/bin/ralph_done_loop.py
+bash -n ~/.claude/bin/claude_run
+python3 -m py_compile ~/.claude/bin/ralph_done_loop.py
 
 # Focused reliability tests.
-pytest -q /Users/chadsimon/.claude/tests/postflight
+pytest -q ~/.claude/tests/postflight
 ```
 
 ## Canary Checks
@@ -77,9 +77,9 @@ pytest -q /Users/chadsimon/.claude/tests/postflight
 
 ## Acceptance Predicate Command
 ```bash
-python3 /Users/chadsimon/.claude/bin/postflight_acceptance_check.py \
-  --run-summary /Users/chadsimon/.claude/state/postflight_runs/<task>/<track>/<run>/run_summary.json \
-  --out /Users/chadsimon/.claude/state/postflight_runs/<task>/<track>/<run>/acceptance_check.json \
+python3 ~/.claude/bin/postflight_acceptance_check.py \
+  --run-summary ~/.claude/state/postflight_runs/<task>/<track>/<run>/run_summary.json \
+  --out ~/.claude/state/postflight_runs/<task>/<track>/<run>/acceptance_check.json \
   --mode enforce
 ```
 
@@ -87,7 +87,7 @@ python3 /Users/chadsimon/.claude/bin/postflight_acceptance_check.py \
 - `REAL_BIN_NOT_FOUND`:
   - set `CLAUDE_HOME` or install/alias `codex.real`.
 - `LOCK_BUSY`:
-  - wait and retry, or inspect lock metadata under `/Users/chadsimon/.claude/state/locks/`.
+  - wait and retry, or inspect lock metadata under `~/.claude/state/locks/`.
 - `ROUTE_CLASS_IMMUTABLE_VIOLATION`:
   - do not reuse a `route_task_id` with a different route class.
 - `PREDICATE_FAILED`:

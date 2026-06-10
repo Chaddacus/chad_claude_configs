@@ -97,6 +97,19 @@ REPLAYABLE_EVENTS = {
     "wake_ceremony_completed",
     "evaluator_dispatched",
     "evaluator_verdict",
+    "phase_changed",
+    "question_selection",
+    "decision_record",
+    "cycle_summary",
+    "track_summary",
+    "baseline_captured",
+    "baseline_unavailable",
+    "verifier_matrix_started",
+    "verifier_run",
+    "verifier_classified",
+    "verifier_matrix_completed",
+    "phase_transition_blocked",
+    "shadow_decision",
 }
 AUDIT_ONLY_EVENTS = {
     "frontier_refreshed",
@@ -125,6 +138,260 @@ UI_FILE_EXTENSIONS = {
 
 PREFLIGHT_WARN_SCORE_MAX = 74
 PREFLIGHT_BLOCK_SCORE_MAX = 59
+
+
+# ---------------------------------------------------------------------------
+# Phase register (stage-aware orchestrator loop — Slice 1a)
+# Plan ref: ~/.codex-spar/stage-aware-orchestrator-loop/plan-final.md §1
+# ---------------------------------------------------------------------------
+
+PHASE_ENUM = ("discovery", "design", "build", "verify", "closeout")
+PHASE_INITIAL = "discovery"
+
+# Monotonic phase transitions only (plan-final §1, post-v3 revision).
+# verify -> build is a bounded retry edge, NOT a phase regression.
+# Each entry: (from, to) -> required_evidence_keys
+PHASE_TRANSITION_TABLE: dict[tuple[str, str], frozenset[str]] = {
+    ("discovery", "design"):  frozenset({"repo_facts", "scope", "constraints"}),
+    ("design", "build"):      frozenset({"plan_approved", "owned_files", "validation_plan"}),
+    ("build", "verify"):      frozenset({"patch_applied", "lint_pass"}),
+    ("verify", "closeout"):   frozenset({"tests_pass", "no_introduced_regressions"}),
+    ("verify", "build"):      frozenset({"introduced_failure"}),  # retry edge
+}
+PHASE_RETRY_BUDGET = {("verify", "build"): 3}
+
+# Route strictness ordering for the generic stricter-route rule (plan-final §1).
+# R5 is unordered until resolved; handled by special-case rows.
+ROUTE_STRICTNESS = {"R1": 1, "R2": 2, "R3": 3, "R4": 4}
+
+# Required-evidence sets per route (used by route-change reconciliation).
+# A phase's required evidence is its inbound transition's required set,
+# plus any route-level requirements stacked on top.
+ROUTE_REQUIRED_EVIDENCE = {
+    "R1": frozenset(),
+    "R2": frozenset(),
+    "R3": frozenset(),
+    "R4": frozenset({"threat_model", "security_review"}),
+}
+
+# Special-case route-change rows (override the generic rule).
+# (from_route, to_route) -> {target_phase, invalidate, required_backfill, dispatch}
+ROUTE_CHANGE_SPECIAL_CASES: dict[tuple[str, str], dict[str, Any]] = {
+    ("R5", "R2"): {
+        "target_phase": "build",
+        "invalidate": ["r5_ambiguity_resolution"],
+        "required_backfill": [],
+        "dispatch": "resume",
+    },
+    ("R5", "R3"): {
+        "target_phase": "discovery",
+        "invalidate": ["r5_ambiguity_resolution"],
+        "required_backfill": ["scope", "owned_files", "validation_plan"],
+        "dispatch": "PAUSE",
+    },
+    ("R5", "R4"): {
+        "target_phase": "discovery",
+        "invalidate": ["r5_ambiguity_resolution"],
+        "required_backfill": ["scope", "owned_files", "validation_plan",
+                              "threat_model", "security_review"],
+        "dispatch": "PAUSE",
+    },
+}
+
+
+# ---------------------------------------------------------------------------
+# Question registry + decision_record (Slice 1b)
+# Plan ref: ~/.codex-spar/stage-aware-orchestrator-loop/plan-final.md §3
+# Inline map; YAML externalization in Slice 2.
+# Observable decision_kinds only (per Slice 1b grounding):
+#   phase, route, next_action, owned_files
+# ---------------------------------------------------------------------------
+
+# decision_kind enum restricted to observable kinds.
+# Adding scope/validation_plan/tool_invocation requires state plumbing —
+# separate proposal, see plan-final §3 + Slice 1b grounding notes.
+OBSERVABLE_DECISION_KINDS = ("phase", "route", "next_action", "owned_files")
+
+# ---------------------------------------------------------------------------
+# Verifier baseline capture (Slice 1c)
+# Plan ref: ~/.codex-spar/stage-aware-orchestrator-loop/plan-final.md §2
+# Deviation from §2: dropped `matrix_cell` from baseline_key. A verifier's
+# output against (cwd, base_git_sha, owned_files_hash) is the same regardless
+# of which transition checks it; Slice 3 selects which command per cell.
+# Baseline key: sha256({track_id, route, command_id, owned_files_hash, base_git_sha})
+# ---------------------------------------------------------------------------
+
+# Static allowlist (per Codex M3: no auto-shelling to arbitrary commands).
+# Project-level override via .claude/verifiers.yaml is Slice 3 work.
+VERIFIER_ALLOWLIST: dict[str, dict[str, Any]] = {
+    "ruff_check": {
+        "argv": ["ruff", "check", "."],
+        "project_markers": ["pyproject.toml", "ruff.toml", ".ruff.toml"],
+        "timeout_ms": 30000,
+    },
+    "mypy_check": {
+        "argv": ["python3", "-m", "mypy", "--no-incremental", "."],
+        "project_markers": ["mypy.ini", "pyproject.toml"],
+        "timeout_ms": 60000,
+    },
+    "pytest_smoke": {
+        "argv": ["python3", "-m", "pytest", "-q", "-x", "--tb=no"],
+        "project_markers": ["pytest.ini", "pyproject.toml", "conftest.py"],
+        "timeout_ms": 60000,
+    },
+    "eslint_check": {
+        "argv": ["npx", "--no-install", "eslint", "."],
+        "project_markers": [".eslintrc", ".eslintrc.js", ".eslintrc.json",
+                            ".eslintrc.cjs", "eslint.config.js"],
+        "timeout_ms": 30000,
+    },
+    "tsc_noemit": {
+        "argv": ["npx", "--no-install", "tsc", "--noEmit"],
+        "project_markers": ["tsconfig.json"],
+        "timeout_ms": 60000,
+    },
+}
+
+# Per-route total baseline budget. R1 and R5-unresolved skip entirely.
+BASELINE_BUDGET_MS_BY_ROUTE = {
+    "R1": 0,
+    "R2": 1500,
+    "R3": 8000,
+    "R4": 30000,
+    "R5": 0,
+}
+
+# Baseline status enum (Slice 1c emits; Slice 3 acts on these).
+BASELINE_STATUS = (
+    "pass",
+    "preexisting_failure",
+    "infra_error",
+    "timeout",
+    "budget_exhausted",
+    "not_applicable",
+    "baseline_unavailable",
+)
+
+BASELINE_OUTPUT_EXCERPT_BYTES = 4096
+
+
+QUESTION_REGISTRY_INLINE: dict[str, Any] = {
+    "registry_version": "inline-slice-1b",
+    "phases": {
+        "discovery": {
+            "questions": [
+                {
+                    "id": "prior_art",
+                    "question": "How do existing components in this repo solve this?",
+                    "any_evidence_required": ["repo_search", "memory_lookup"],
+                    "targets_decision_kind": "next_action",
+                    "skip_when": {"route_in": ["R1"]},
+                },
+            ],
+        },
+        "build": {
+            "questions": [
+                {
+                    "id": "simplest_path",
+                    "question": "Is this still the simplest path?",
+                    "any_evidence_required": ["repo_search"],
+                    "targets_decision_kind": "owned_files",
+                    "skip_when": {"route_in": ["R1"]},
+                },
+            ],
+        },
+    },
+    "loop_invariant": {
+        "triggers": {
+            "event_count_since_last": 5,
+            "on_route_promotion": True,
+        },
+        "max_invariant_tokens": 400,
+        "questions": [
+            {
+                "id": "premise_check",
+                "question": "Did anything we just learned invalidate the plan?",
+                "any_evidence_required": ["memory_lookup", "event_log_diff"],
+                "targets_decision_kind": "next_action",
+                "skip_when": {"route_in": ["R1"]},
+            },
+        ],
+    },
+}
+
+
+# ---------------------------------------------------------------------------
+# External question registry loader (Slice 2)
+# ---------------------------------------------------------------------------
+#
+# Default path: ~/.claude/policy/phase_questions.yaml
+# Falls back to QUESTION_REGISTRY_INLINE if the file is missing, unreadable,
+# or fails parse. On load failure we emit a one-shot stderr warning (the
+# inline copy keeps the runtime working). The cache is keyed by (path, mtime).
+#
+# Schema is enforced by ~/.claude/bin/registry_lint.py — not enforced at
+# load time so a malformed external registry can't crash the loop.
+
+PHASE_QUESTIONS_REGISTRY_PATH = Path.home() / ".claude" / "policy" / "phase_questions.yaml"
+
+_REGISTRY_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
+_REGISTRY_LOAD_WARNED: set[str] = set()
+
+
+def _warn_registry_load(path: str, reason: str) -> None:
+    """Stderr-warn once per (path, reason). Never raises."""
+    key = f"{path}|{reason}"
+    if key in _REGISTRY_LOAD_WARNED:
+        return
+    _REGISTRY_LOAD_WARNED.add(key)
+    try:
+        sys.stderr.write(
+            f"[auto_runtime] phase-questions registry load fallback "
+            f"({path}): {reason}\n"
+        )
+    except Exception:
+        pass
+
+
+def load_question_registry(
+    path: Path | str | None = None,
+    *,
+    force: bool = False,
+) -> dict[str, Any]:
+    """Load the external YAML registry; fall back to inline on any error.
+
+    Caches by (path, mtime). Pass force=True to bypass cache (test hook).
+    """
+    p = Path(path) if path is not None else PHASE_QUESTIONS_REGISTRY_PATH
+    key = str(p)
+    try:
+        if not p.exists():
+            _warn_registry_load(key, "file_not_found")
+            return QUESTION_REGISTRY_INLINE
+        mtime = p.stat().st_mtime
+        if not force and key in _REGISTRY_CACHE:
+            cached_mtime, cached_data = _REGISTRY_CACHE[key]
+            if cached_mtime == mtime:
+                return cached_data
+        try:
+            import yaml  # type: ignore
+        except ImportError:
+            _warn_registry_load(key, "pyyaml_unavailable")
+            return QUESTION_REGISTRY_INLINE
+        try:
+            with open(p, "r", encoding="utf-8") as fh:
+                data = yaml.safe_load(fh)
+        except (OSError, yaml.YAMLError) as e:
+            _warn_registry_load(key, f"parse_error:{type(e).__name__}")
+            return QUESTION_REGISTRY_INLINE
+        if not isinstance(data, dict) or "registry_version" not in data:
+            _warn_registry_load(key, "invalid_shape")
+            return QUESTION_REGISTRY_INLINE
+        _REGISTRY_CACHE[key] = (mtime, data)
+        return data
+    except Exception as e:  # noqa: BLE001 — defensive: loader must never raise
+        _warn_registry_load(key, f"unexpected:{type(e).__name__}")
+        return QUESTION_REGISTRY_INLINE
 
 
 # ---------------------------------------------------------------------------
@@ -186,6 +453,1038 @@ def _read_events(track_id: str) -> list[dict[str, Any]]:
         except json.JSONDecodeError:
             continue
     return events
+
+
+def _append_phase_event(
+    track_id: str,
+    *,
+    from_phase: str | None,
+    to_phase: str,
+    evidence: dict[str, Any] | None = None,
+    triggered_by: str = "transition",
+) -> None:
+    """Append a phase_changed event.
+
+    Slice 1a primitive: records the transition without enforcing it.
+    Enforcement and prompt-side effects come in Slices 1b and 3.
+
+    Args:
+        track_id: target track.
+        from_phase: previous phase, or None for initial entry.
+        to_phase: new phase (must be in PHASE_ENUM).
+        evidence: optional dict of {evidence_key: ref-or-bool} for audit.
+        triggered_by: free-text reason ("transition", "route_change",
+            "retry", "initial"); used by analysis tools.
+    """
+    if to_phase not in PHASE_ENUM:
+        raise ValueError(f"unknown phase: {to_phase!r}; expected one of {PHASE_ENUM}")
+    _append_event(track_id, {
+        "event": "phase_changed",
+        "from_phase": from_phase,
+        "to_phase": to_phase,
+        "triggered_by": triggered_by,
+        "evidence": evidence or {},
+    })
+
+
+def current_phase(events: list[dict[str, Any]]) -> str:
+    """Fold the event log to determine the current phase.
+
+    Returns PHASE_INITIAL if no phase_changed events have been recorded.
+    Ignores malformed phase_changed events (missing/invalid to_phase).
+    """
+    for event in reversed(events):
+        if event.get("event") != "phase_changed":
+            continue
+        to_phase = event.get("to_phase")
+        if to_phase in PHASE_ENUM:
+            return to_phase
+    return PHASE_INITIAL
+
+
+# ---------------------------------------------------------------------------
+# Decision record canonical state (Slice 1b)
+# ---------------------------------------------------------------------------
+
+def canonical_state(kind: str, source: Any) -> Any:
+    """Return the canonical state payload for a decision kind.
+
+    Observable kinds only. Raises for non-observable kinds — those
+    require state plumbing not in Slice 1b's scope.
+    """
+    if kind == "phase":
+        return source if source in PHASE_ENUM else None
+    if kind == "route":
+        return source if source in ROUTE_STRICTNESS or source == "R5" else None
+    if kind == "next_action":
+        if source is None:
+            return None
+        return {
+            "action_kind": source.get("action_kind", ""),
+            "target_ref": source.get("target_ref", ""),
+        }
+    if kind == "owned_files":
+        if source is None:
+            return []
+        return sorted(source) if isinstance(source, (list, tuple, set)) else []
+    raise ValueError(f"non-observable decision_kind: {kind!r}; observable: {OBSERVABLE_DECISION_KINDS}")
+
+
+def state_hash(state: Any) -> str:
+    """SHA-256 of canonical JSON payload."""
+    return hashlib.sha256(
+        json.dumps(state, sort_keys=True, default=str).encode()
+    ).hexdigest()
+
+
+def _append_decision_record(
+    track_id: str,
+    *,
+    decision_kind: str,
+    before_state: Any,
+    after_state: Any,
+    evidence_refs: list[str] | None = None,
+    triggered_by_question_id: str | None = None,
+    no_change_reason: str | None = None,
+) -> dict[str, Any]:
+    """Emit a decision_record event with canonical-state hashes.
+
+    Returns the emitted event dict (for test inspection).
+    Validates: changed=False requires no_change_reason when a question
+    targeted this decision (per plan-final §3 disposition validity).
+    """
+    if decision_kind not in OBSERVABLE_DECISION_KINDS:
+        raise ValueError(
+            f"non-observable decision_kind: {decision_kind!r}"
+        )
+    bhash = state_hash(before_state)
+    ahash = state_hash(after_state)
+    changed = bhash != ahash
+    # Disposition validity: question fired AND changed=False => must explain.
+    if (not changed) and triggered_by_question_id and not no_change_reason:
+        raise ValueError(
+            "decision_record with changed=False and a triggering question "
+            "must include no_change_reason (plan-final §3)"
+        )
+    event = {
+        "event": "decision_record",
+        "decision_kind": decision_kind,
+        "before_state": before_state,
+        "after_state": after_state,
+        "before_state_hash": bhash,
+        "after_state_hash": ahash,
+        "changed": changed,
+        "no_change_reason": no_change_reason,
+        "triggered_by_question_id": triggered_by_question_id,
+        "evidence_refs": evidence_refs or [],
+    }
+    _append_event(track_id, event)
+    return event
+
+
+# ---------------------------------------------------------------------------
+# Question selection (Slice 1b)
+# ---------------------------------------------------------------------------
+
+def _question_applies(question: dict[str, Any], route: str) -> bool:
+    """Apply skip_when.route_in filter."""
+    skip_when = question.get("skip_when", {}) or {}
+    if route in (skip_when.get("route_in") or []):
+        return False
+    return True
+
+
+def select_phase_questions(
+    phase: str,
+    route: str,
+    *,
+    registry: dict[str, Any] | None = None,
+    fire_invariant: bool = True,
+) -> list[dict[str, Any]]:
+    """Select questions applicable to (phase, route).
+
+    R1 bypasses entirely. R5 (unresolved) gets only loop_invariant questions
+    that don't skip on R5.
+    """
+    if route == "R1":
+        return []
+    reg = registry if registry is not None else load_question_registry()
+    selected: list[dict[str, Any]] = []
+    if route != "R5":
+        phase_block = reg.get("phases", {}).get(phase, {})
+        for q in phase_block.get("questions", []):
+            if _question_applies(q, route):
+                selected.append(q)
+    if fire_invariant:
+        inv_block = reg.get("loop_invariant", {})
+        for q in inv_block.get("questions", []):
+            if _question_applies(q, route):
+                selected.append(q)
+    return selected
+
+
+def _append_question_selection(
+    track_id: str,
+    *,
+    phase: str,
+    route: str,
+    questions: list[dict[str, Any]],
+    trigger: str = "cycle_start",
+) -> None:
+    """Emit a question_selection event recording what was asked this cycle."""
+    _append_event(track_id, {
+        "event": "question_selection",
+        "phase": phase,
+        "route": route,
+        "trigger": trigger,
+        "question_ids": [q["id"] for q in questions],
+        "targets_decision_kinds": sorted({
+            q.get("targets_decision_kind") for q in questions
+            if q.get("targets_decision_kind")
+        }),
+    })
+
+
+def _capture_observable_states(
+    track_id: str,
+    state: dict[str, Any],
+    *,
+    anticipation: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Capture current values for the 4 observable decision kinds.
+
+    Used to compute before/after deltas in decision_record events.
+    `anticipation` provides next_action data when available (post-anticipate).
+    """
+    events = _read_events(track_id)
+    policy = state.get("views", {}).get("policy", {})
+    graph = state.get("views", {}).get("graph", {})
+    frontier = state.get("views", {}).get("frontier", {})
+
+    # Find focus node = anticipation's slice OR frontier's next_slice_id
+    focus_slice_id = None
+    if anticipation:
+        ed = anticipation.get("evaluator_dispatch", {}) or {}
+        focus_slice_id = ed.get("slice_id")
+    if not focus_slice_id:
+        focus_slice_id = frontier.get("next_slice_id")
+    focus_node = (graph.get("nodes") or {}).get(focus_slice_id, {}) if focus_slice_id else {}
+
+    next_action_source = None
+    if anticipation:
+        next_action_source = {
+            "action_kind": anticipation.get("recommended_action", ""),
+            "target_ref": focus_slice_id or "",
+        }
+
+    return {
+        "phase": canonical_state("phase", current_phase(events)),
+        "route": canonical_state("route", policy.get("hard_policy", {}).get("route_id", "")),
+        "next_action": canonical_state("next_action", next_action_source),
+        "owned_files": canonical_state("owned_files", focus_node.get("owned_scope", [])),
+    }
+
+
+def _emit_cycle_summary(
+    track_id: str,
+    *,
+    cycle_idx: int,
+    route: str,
+    recommended_action: str,
+    action_status: str,
+    questions_fired: list[str] | None = None,
+    decisions_recorded: list[dict[str, Any]] | None = None,
+    phase_at_start: str | None = None,
+    phase_at_end: str | None = None,
+) -> None:
+    """Emit cycle_summary event for Layer-2 validation (plan-final §7).
+
+    Token/wall-clock counts come from the Claude Code layer; this layer
+    cannot observe them, so they remain null. analyze.py merges in any
+    upstream-supplied measurements at validation time.
+    """
+    _append_event(track_id, {
+        "event": "cycle_summary",
+        "cycle": cycle_idx,
+        "route": route,
+        "phase_at_start": phase_at_start,
+        "phase_at_end": phase_at_end,
+        "questions_fired": questions_fired or [],
+        "decisions_recorded": decisions_recorded or [],
+        "recommended_action": recommended_action,
+        "action_status": action_status,
+        "tokens_in": None,        # supplied by Claude Code layer
+        "tokens_out": None,
+        "wall_clock_ms": None,
+    })
+
+
+# ---------------------------------------------------------------------------
+# Baseline capture (Slice 1c)
+# ---------------------------------------------------------------------------
+
+def _baseline_key(
+    *,
+    track_id: str,
+    route: str,
+    command_id: str,
+    owned_files_hash: str,
+    base_git_sha: str,
+) -> str:
+    """Deterministic baseline key (per plan-final §2 with matrix_cell dropped)."""
+    payload = {
+        "track_id": track_id,
+        "route": route,
+        "command_id": command_id,
+        "owned_files_hash": owned_files_hash,
+        "base_git_sha": base_git_sha,
+    }
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True).encode()
+    ).hexdigest()
+
+
+def _owned_files_hash(owned_scope: list[str] | None) -> str:
+    """sha256 of sorted owned-files set; empty set → known empty hash."""
+    return hashlib.sha256(
+        json.dumps(sorted(owned_scope or []), default=str).encode()
+    ).hexdigest()
+
+
+def _detect_applicable_verifiers(cwd: str) -> list[str]:
+    """Return command_ids whose project_markers exist in cwd.
+
+    Allowlist-only — no auto-detection of arbitrary commands (Codex M3).
+    Empty list if cwd doesn't exist.
+    """
+    if not cwd or not os.path.isdir(cwd):
+        return []
+    applicable: list[str] = []
+    for command_id, spec in VERIFIER_ALLOWLIST.items():
+        for marker in spec["project_markers"]:
+            if os.path.exists(os.path.join(cwd, marker)):
+                applicable.append(command_id)
+                break
+    return applicable
+
+
+def _capture_baseline_command(
+    *,
+    command_id: str,
+    cwd: str,
+    remaining_budget_ms: int,
+) -> dict[str, Any]:
+    """Run one verifier command and return its baseline result.
+
+    Does NOT touch the worktree — the caller is responsible for ensuring
+    we're against a clean ref (see `capture_baselines`).
+    Returns: {status, exit_code, output_excerpt, duration_ms}.
+    """
+    spec = VERIFIER_ALLOWLIST[command_id]
+    timeout_s = min(spec["timeout_ms"], remaining_budget_ms) / 1000.0
+    if timeout_s <= 0:
+        return {
+            "status": "budget_exhausted", "exit_code": None,
+            "output_excerpt": "", "duration_ms": 0,
+        }
+    start = time.monotonic()
+    try:
+        result = subprocess.run(
+            spec["argv"], cwd=cwd,
+            capture_output=True, text=True, timeout=timeout_s,
+        )
+        duration_ms = int((time.monotonic() - start) * 1000)
+        combined = (result.stdout + result.stderr)[-BASELINE_OUTPUT_EXCERPT_BYTES:]
+        status = "pass" if result.returncode == 0 else "preexisting_failure"
+        return {
+            "status": status, "exit_code": result.returncode,
+            "output_excerpt": combined, "duration_ms": duration_ms,
+        }
+    except subprocess.TimeoutExpired:
+        return {
+            "status": "timeout", "exit_code": None,
+            "output_excerpt": "", "duration_ms": int((time.monotonic() - start) * 1000),
+        }
+    except (FileNotFoundError, OSError) as e:
+        return {
+            "status": "infra_error", "exit_code": None,
+            "output_excerpt": f"{type(e).__name__}: {e}",
+            "duration_ms": int((time.monotonic() - start) * 1000),
+        }
+
+
+def _get_base_git_sha(cwd: str) -> str | None:
+    """Return HEAD sha or None when not in a git repo / git missing."""
+    if not _is_git_repo(cwd):
+        return None
+    rc, out = _run_git(["rev-parse", "HEAD"], cwd)
+    if rc != 0 or not out.strip():
+        return None
+    return out.strip()
+
+
+def capture_baselines(
+    track_id: str,
+    *,
+    cwd: str,
+    route: str,
+    owned_files: list[str] | None,
+) -> dict[str, Any]:
+    """Capture verifier baselines pre-dispatch (Slice 1c entry point).
+
+    Emits one `baseline_captured` or `baseline_unavailable` event per
+    detected verifier command. Stores per-command JSON under
+    `~/.claude/state/autonomy/{track_id}/baselines/{key}.json`.
+
+    Does NOT block dispatch (Slice 3 wires that). Returns a summary dict
+    for the caller's telemetry.
+    """
+    summary = {
+        "route": route,
+        "captured": [],
+        "unavailable": [],
+        "budget_ms_total": BASELINE_BUDGET_MS_BY_ROUTE.get(route, 0),
+        "budget_ms_used": 0,
+    }
+
+    budget = BASELINE_BUDGET_MS_BY_ROUTE.get(route, 0)
+    if budget <= 0:
+        # Route bypasses baseline capture (R1, R5-unresolved).
+        return summary
+
+    base_git_sha = _get_base_git_sha(cwd)
+    if not base_git_sha:
+        # No clean ref available → emit baseline_unavailable for every
+        # detected verifier so Slice 3 can classify as unknown_failure later.
+        for command_id in _detect_applicable_verifiers(cwd):
+            _append_event(track_id, {
+                "event": "baseline_unavailable",
+                "command_id": command_id,
+                "reason": "no_git_repo_or_no_head",
+                "cwd": cwd,
+            })
+            summary["unavailable"].append({
+                "command_id": command_id, "reason": "no_git_repo_or_no_head",
+            })
+        return summary
+
+    applicable = _detect_applicable_verifiers(cwd)
+    if not applicable:
+        return summary
+
+    owned_files_hash = _owned_files_hash(owned_files)
+    baselines_dir = track_dir(track_id) / "baselines"
+    _ensure_dir(baselines_dir)
+
+    # Try stash for clean ref. If stash fails (e.g., nothing to stash, or
+    # stash command unavailable), proceed against HEAD directly — base_git_sha
+    # still pins the ref-identity for the baseline key.
+    stash_active = False
+    rc, stash_out = _run_git(
+        ["stash", "push", "--include-untracked", "-m", f"baseline-{track_id}"],
+        cwd, timeout=10,
+    )
+    if rc == 0 and "No local changes" not in stash_out:
+        stash_active = True
+
+    try:
+        budget_used_ms = 0
+        for command_id in applicable:
+            remaining = budget - budget_used_ms
+            if remaining <= 0:
+                _append_event(track_id, {
+                    "event": "baseline_unavailable",
+                    "command_id": command_id,
+                    "reason": "budget_exhausted",
+                    "budget_ms_total": budget,
+                    "budget_ms_used": budget_used_ms,
+                })
+                summary["unavailable"].append({
+                    "command_id": command_id, "reason": "budget_exhausted",
+                })
+                continue
+            result = _capture_baseline_command(
+                command_id=command_id, cwd=cwd, remaining_budget_ms=remaining,
+            )
+            budget_used_ms += result["duration_ms"]
+
+            key = _baseline_key(
+                track_id=track_id, route=route, command_id=command_id,
+                owned_files_hash=owned_files_hash, base_git_sha=base_git_sha,
+            )
+            baseline_record = {
+                "key": key,
+                "track_id": track_id,
+                "route": route,
+                "command_id": command_id,
+                "owned_files_hash": owned_files_hash,
+                "base_git_sha": base_git_sha,
+                "status": result["status"],
+                "exit_code": result["exit_code"],
+                "output_excerpt": result["output_excerpt"],
+                "duration_ms": result["duration_ms"],
+                "captured_at": now_iso(),
+            }
+            (baselines_dir / f"{key}.json").write_text(
+                json.dumps(baseline_record, indent=2) + "\n"
+            )
+            _append_event(track_id, {
+                "event": "baseline_captured",
+                "command_id": command_id,
+                "status": result["status"],
+                "key": key,
+                "duration_ms": result["duration_ms"],
+            })
+            summary["captured"].append({
+                "command_id": command_id, "status": result["status"], "key": key,
+            })
+        summary["budget_ms_used"] = budget_used_ms
+    finally:
+        if stash_active:
+            _run_git(["stash", "pop"], cwd, timeout=10)
+
+    return summary
+
+
+def _emit_track_summary(track_id: str, *, closure_state: str) -> None:
+    """Emit track_summary event at track close (plan-final §7)."""
+    events = _read_events(track_id)
+    phases_visited: list[str] = []
+    for e in events:
+        if e.get("event") == "phase_changed":
+            tp = e.get("to_phase")
+            if tp in PHASE_ENUM and (not phases_visited or phases_visited[-1] != tp):
+                phases_visited.append(tp)
+    question_events = [e for e in events if e.get("event") == "question_selection"]
+    decision_events = [e for e in events if e.get("event") == "decision_record"]
+    cycle_events = [e for e in events if e.get("event") == "cycle_summary"]
+    distinct_kinds_changed = sorted({
+        e.get("decision_kind") for e in decision_events
+        if e.get("changed") and e.get("decision_kind")
+    })
+    _append_event(track_id, {
+        "event": "track_summary",
+        "closure_state": closure_state,
+        "cycle_count": len(cycle_events),
+        "phases_visited": phases_visited,
+        "question_selection_count": len(question_events),
+        "decision_record_count": len(decision_events),
+        "decision_kinds_changed": distinct_kinds_changed,
+    })
+
+
+# ---------------------------------------------------------------------------
+# Slice 3 — phase-aware verifier matrix + baseline consumer + transition gate
+# ---------------------------------------------------------------------------
+#
+# The matrix declares which verifier commands are `required` vs `advisory`
+# per (route, transition). A transition's matrix is the union across keys
+# matched from most-specific (route, from→to) to most-generic (route, "*").
+# Missing entries default to no verifiers (R1, R5-unresolved).
+#
+# Required + introduced_failure  → blocks transition (fail-closed).
+# Required + unknown_failure     → policy decides per UNKNOWN_FAILURE_POLICY_BY_ROUTE.
+# Required + preexisting_failure → does NOT block (baseline says it was already broken).
+# Advisory                       → never blocks; recorded for postmortem.
+
+VERIFIER_MATRIX: dict[str, dict[str, dict[str, str]]] = {
+    # Route → transition-key → command_id → "required"|"advisory"
+    "R2": {
+        "build->verify": {
+            "ruff_check": "required",
+            "pytest_smoke": "advisory",
+            "eslint_check": "advisory",
+            "tsc_noemit": "advisory",
+            "mypy_check": "advisory",
+        },
+        "verify->closeout": {
+            "pytest_smoke": "required",
+            "ruff_check": "advisory",
+        },
+    },
+    "R3": {
+        "build->verify": {
+            "ruff_check": "required",
+            "pytest_smoke": "required",
+            "eslint_check": "required",
+            "tsc_noemit": "required",
+            "mypy_check": "advisory",
+        },
+        "verify->closeout": {
+            "pytest_smoke": "required",
+            "ruff_check": "required",
+            "eslint_check": "required",
+            "tsc_noemit": "required",
+        },
+    },
+    "R4": {
+        "build->verify": {
+            "ruff_check": "required",
+            "pytest_smoke": "required",
+            "eslint_check": "required",
+            "tsc_noemit": "required",
+            "mypy_check": "required",
+        },
+        "verify->closeout": {
+            "ruff_check": "required",
+            "pytest_smoke": "required",
+            "eslint_check": "required",
+            "tsc_noemit": "required",
+            "mypy_check": "required",
+        },
+    },
+    # R1 + R5: empty — no verifier matrix runs.
+}
+
+# Per-route total transition-time budget. Distinct from BASELINE_BUDGET_MS_BY_ROUTE.
+VERIFIER_MATRIX_BUDGET_MS_BY_ROUTE: dict[str, int] = {
+    "R1": 0,
+    "R2": 5000,
+    "R3": 30000,
+    "R4": 120000,
+    "R5": 0,
+}
+
+# Per-route policy for unknown_failure on required verifiers (plan-final §2).
+# R2 = advisory (do not block); R3/R4 = block (fail-closed).
+UNKNOWN_FAILURE_POLICY_BY_ROUTE: dict[str, str] = {
+    "R1": "advisory",
+    "R2": "advisory",
+    "R3": "block",
+    "R4": "block",
+    "R5": "advisory",
+}
+
+VERIFIER_RESULT_CLASS = (
+    "pass",
+    "introduced_failure",
+    "preexisting_failure",
+    "unknown_failure",
+)
+
+
+def matrix_for_transition(route: str, from_phase: str, to_phase: str) -> dict[str, str]:
+    """Return the {command_id: requiredness} map for this (route, transition).
+
+    Empty dict means no verifiers run for this cell.
+    """
+    route_block = VERIFIER_MATRIX.get(route, {})
+    key = f"{from_phase}->{to_phase}"
+    return dict(route_block.get(key, {}))
+
+
+def _load_baseline(
+    track_id: str,
+    *,
+    route: str,
+    command_id: str,
+    owned_files_hash: str,
+    base_git_sha: str,
+) -> dict[str, Any] | None:
+    """Load a previously-captured baseline record by exact key match."""
+    if not base_git_sha:
+        return None
+    key = _baseline_key(
+        track_id=track_id, route=route, command_id=command_id,
+        owned_files_hash=owned_files_hash, base_git_sha=base_git_sha,
+    )
+    path = track_dir(track_id) / "baselines" / f"{key}.json"
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def classify_verifier_result(current_status: str, baseline_status: str | None) -> str:
+    """Compare a fresh verifier run to its baseline.
+
+    Truth table:
+      baseline    | current                  | classification
+      ----------- | ------------------------ | ------------------
+      None        | any                      | unknown_failure (only if current != pass)
+      None        | pass                     | pass
+      pass        | pass                     | pass
+      pass        | preexisting_failure/etc  | introduced_failure
+      preexisting | pass                     | pass (fixed!)
+      preexisting | preexisting_failure      | preexisting_failure
+      timeout/etc | any non-pass             | unknown_failure
+      any         | infra_error              | unknown_failure
+      any         | timeout/budget_exhausted | unknown_failure
+    """
+    if current_status == "pass":
+        return "pass"
+    # current is some kind of failure/non-pass
+    if current_status in ("infra_error", "timeout", "budget_exhausted"):
+        return "unknown_failure"
+    if baseline_status is None:
+        return "unknown_failure"
+    if baseline_status == "pass":
+        return "introduced_failure"
+    if baseline_status == "preexisting_failure":
+        return "preexisting_failure"
+    # baseline was infra_error/timeout/etc — can't compare
+    return "unknown_failure"
+
+
+def run_verifier_matrix(
+    track_id: str,
+    *,
+    cwd: str,
+    route: str,
+    from_phase: str,
+    to_phase: str,
+    owned_files: list[str] | None,
+    shadow: bool = False,
+) -> dict[str, Any]:
+    """Run verifiers required/advisory for this transition; classify vs baseline.
+
+    Returns:
+      {
+        "transition_allowed": bool,
+        "block_reasons": [{"command_id", "classification", "requiredness"}],
+        "results": [{command_id, requiredness, current_status, classification, duration_ms}],
+        "budget_ms_total": int, "budget_ms_used": int,
+        "shadow": bool,
+      }
+    """
+    matrix = matrix_for_transition(route, from_phase, to_phase)
+    summary = {
+        "transition_allowed": True,
+        "block_reasons": [],
+        "results": [],
+        "budget_ms_total": VERIFIER_MATRIX_BUDGET_MS_BY_ROUTE.get(route, 0),
+        "budget_ms_used": 0,
+        "shadow": shadow,
+    }
+    if not matrix:
+        return summary
+
+    budget = VERIFIER_MATRIX_BUDGET_MS_BY_ROUTE.get(route, 0)
+    if budget <= 0:
+        return summary
+
+    _append_event(track_id, {
+        "event": "verifier_matrix_started",
+        "route": route, "from_phase": from_phase, "to_phase": to_phase,
+        "command_ids": sorted(matrix.keys()),
+        "shadow": shadow,
+    })
+
+    applicable_in_repo = set(_detect_applicable_verifiers(cwd))
+    base_git_sha = _get_base_git_sha(cwd) or ""
+    owned_files_hash = _owned_files_hash(owned_files)
+    unknown_policy = UNKNOWN_FAILURE_POLICY_BY_ROUTE.get(route, "advisory")
+
+    budget_used_ms = 0
+    for command_id, requiredness in matrix.items():
+        # Skip commands the project doesn't actually have markers for.
+        if command_id not in applicable_in_repo:
+            summary["results"].append({
+                "command_id": command_id, "requiredness": requiredness,
+                "current_status": "not_applicable",
+                "classification": "pass",  # not applicable → can't block
+                "duration_ms": 0,
+            })
+            _append_event(track_id, {
+                "event": "verifier_classified",
+                "command_id": command_id, "requiredness": requiredness,
+                "current_status": "not_applicable", "classification": "pass",
+                "shadow": shadow,
+            })
+            continue
+
+        remaining = budget - budget_used_ms
+        if remaining <= 0:
+            current_status = "budget_exhausted"
+        else:
+            run_result = _capture_baseline_command(
+                command_id=command_id, cwd=cwd, remaining_budget_ms=remaining,
+            )
+            current_status = run_result["status"]
+            budget_used_ms += run_result["duration_ms"]
+            _append_event(track_id, {
+                "event": "verifier_run",
+                "command_id": command_id, "requiredness": requiredness,
+                "status": current_status, "duration_ms": run_result["duration_ms"],
+                "shadow": shadow,
+            })
+
+        baseline = _load_baseline(
+            track_id, route=route, command_id=command_id,
+            owned_files_hash=owned_files_hash, base_git_sha=base_git_sha,
+        )
+        classification = classify_verifier_result(
+            current_status, baseline["status"] if baseline else None,
+        )
+        result_entry = {
+            "command_id": command_id, "requiredness": requiredness,
+            "current_status": current_status, "classification": classification,
+            "duration_ms": 0 if remaining <= 0 else run_result["duration_ms"],
+        }
+        summary["results"].append(result_entry)
+        _append_event(track_id, {
+            "event": "verifier_classified",
+            "command_id": command_id, "requiredness": requiredness,
+            "current_status": current_status, "classification": classification,
+            "baseline_present": baseline is not None,
+            "shadow": shadow,
+        })
+
+        # Blocking decision: only `required` verifiers can block.
+        if requiredness != "required":
+            continue
+        if classification == "introduced_failure":
+            summary["transition_allowed"] = False
+            summary["block_reasons"].append({
+                "command_id": command_id,
+                "classification": classification,
+                "requiredness": requiredness,
+            })
+        elif classification == "unknown_failure" and unknown_policy == "block":
+            summary["transition_allowed"] = False
+            summary["block_reasons"].append({
+                "command_id": command_id,
+                "classification": classification,
+                "requiredness": requiredness,
+                "policy": "block_on_unknown",
+            })
+
+    summary["budget_ms_used"] = budget_used_ms
+    _append_event(track_id, {
+        "event": "verifier_matrix_completed",
+        "transition_allowed": summary["transition_allowed"],
+        "block_reasons": summary["block_reasons"],
+        "budget_ms_used": budget_used_ms,
+        "budget_ms_total": budget,
+        "shadow": shadow,
+    })
+    return summary
+
+
+# Map cycle_track's recommended_action → the phase the loop is moving into
+# when that action runs. Used by _maybe_auto_advance_phase to wire phase
+# advancement into the cycle flow.
+_ACTION_TO_PHASE_INTENT: dict[str, str] = {
+    "dispatch": "build",     # dispatching code work → enter build
+    "evaluate": "verify",    # evaluator run → enter verify
+    "close": "closeout",     # close → enter closeout
+}
+
+
+def _collect_evidence_keys(track_id: str) -> set[str]:
+    """Derive phase-transition evidence keys from the event log.
+
+    The phase transition table requires keys like `repo_facts`, `patch_applied`,
+    `tests_pass`. The cycle flow doesn't directly emit those tags — they're
+    implicit in observable events:
+      - dispatch (inline or governed) implies discovery + design work was done
+        plus the patch surface was opened (patch_applied)
+      - verifier_matrix_completed with transition_allowed=True implies
+        lint/tests passed cleanly (no introduced regressions)
+      - verifier_classified with introduced_failure implies the retry edge
+    """
+    events = _read_events(track_id)
+    ev: set[str] = set()
+    for e in events:
+        et = e.get("event")
+        if et in ("inline_dispatched", "governed_dispatched"):
+            ev.update({
+                "repo_facts", "scope", "constraints",
+                "plan_approved", "owned_files", "validation_plan",
+                "patch_applied",
+            })
+        elif et == "verifier_matrix_completed" and e.get("transition_allowed"):
+            ev.update({"lint_pass", "tests_pass", "no_introduced_regressions"})
+        elif et == "verifier_classified" and e.get("classification") == "introduced_failure":
+            ev.add("introduced_failure")
+    return ev
+
+
+def _active_slice_owned_files(
+    state: dict[str, Any],
+    *,
+    action: str,
+    action_result: dict[str, Any],
+    anticipation: dict[str, Any],
+) -> list[str]:
+    """Find the owned_scope list for the slice the cycle is operating on.
+
+    Resolution order:
+      - dispatch  → action_result.dispatch.slice_id (the just-dispatched slice)
+      - evaluate  → anticipation.evaluator_dispatch.slice_id
+      - other     → frontier.next_slice_id (current focus)
+    Returns [] when no slice can be resolved (e.g., close, or empty graph).
+    """
+    graph = state.get("views", {}).get("graph", {}) or {}
+    frontier = state.get("views", {}).get("frontier", {}) or {}
+    nodes = graph.get("nodes") or {}
+
+    slice_id: str | None = None
+    if action == "dispatch":
+        slice_id = (action_result.get("dispatch") or {}).get("slice_id")
+    elif action == "evaluate":
+        slice_id = (anticipation.get("evaluator_dispatch") or {}).get("slice_id")
+    if not slice_id:
+        slice_id = frontier.get("next_slice_id")
+
+    if not slice_id:
+        return []
+    node = nodes.get(slice_id) or {}
+    owned = node.get("owned_scope", []) or []
+    # Defensive: ensure list[str].
+    return [str(x) for x in owned if x]
+
+
+def _maybe_auto_advance_phase(
+    track_id: str,
+    *,
+    target_phase: str | None,
+    route: str,
+    cwd: str,
+    owned_files: list[str] | None,
+    shadow: bool = False,
+) -> list[dict[str, Any]]:
+    """Walk phase transitions toward target_phase using collected evidence.
+
+    Returns a list of decisions (one per attempted transition). Stops at the
+    first blocked transition. Returns [] if target_phase is None, cwd missing,
+    or already at/past target.
+    """
+    if not target_phase or not cwd:
+        return []
+    phase_order = list(PHASE_ENUM)
+    if target_phase not in phase_order:
+        return []
+    decisions: list[dict[str, Any]] = []
+    # Cap iterations at len(PHASE_ENUM) to prevent any pathological loop.
+    for _ in range(len(phase_order)):
+        current = current_phase(_read_events(track_id))
+        if current == target_phase:
+            break
+        cur_idx = phase_order.index(current)
+        tgt_idx = phase_order.index(target_phase)
+        if cur_idx >= tgt_idx:
+            break  # don't walk backward
+        next_phase = phase_order[cur_idx + 1]
+        decision = attempt_phase_transition(
+            track_id, to_phase=next_phase, route=route,
+            cwd=cwd, owned_files=owned_files,
+            evidence_keys=_collect_evidence_keys(track_id),
+            shadow=shadow,
+        )
+        decisions.append(decision)
+        if not decision["allowed"]:
+            break
+    return decisions
+
+
+def attempt_phase_transition(
+    track_id: str,
+    *,
+    to_phase: str,
+    route: str,
+    cwd: str,
+    owned_files: list[str] | None,
+    evidence_keys: set[str] | None = None,
+    shadow: bool = False,
+) -> dict[str, Any]:
+    """Public entry point: try to transition to `to_phase`.
+
+    Steps:
+      1. Compute current phase via fold over events.
+      2. Check phase_transition_allowed (Slice 1a guard on enum + evidence).
+      3. Run the verifier matrix for (route, from→to).
+      4. If transition is allowed AND matrix doesn't block → emit phase_changed
+         (live mode only). In shadow mode emit shadow_decision with the
+         would-have-been transition + verifier summary; do NOT emit phase_changed.
+
+    Returns the full decision dict for the caller.
+    """
+    events = _read_events(track_id)
+    from_phase = current_phase(events)
+    evidence = evidence_keys or set()
+
+    guard = phase_transition_allowed(from_phase, to_phase, route, evidence)
+    if not guard["allowed"]:
+        decision = {
+            "allowed": False,
+            "from_phase": from_phase, "to_phase": to_phase,
+            "reason": guard.get("reason", "transition_not_allowed"),
+            "missing_evidence": guard.get("missing_evidence", []),
+            "verifier_summary": None,
+            "shadow": shadow,
+        }
+        if shadow:
+            _append_event(track_id, {
+                "event": "shadow_decision",
+                "decision_kind": "phase_transition",
+                "would_emit_phase_changed": False,
+                "from_phase": from_phase, "to_phase": to_phase,
+                "reason": decision["reason"],
+            })
+        else:
+            _append_event(track_id, {
+                "event": "phase_transition_blocked",
+                "from_phase": from_phase, "to_phase": to_phase,
+                "reason": decision["reason"],
+                "missing_evidence": decision["missing_evidence"],
+            })
+        return decision
+
+    matrix_summary = run_verifier_matrix(
+        track_id, cwd=cwd, route=route,
+        from_phase=from_phase, to_phase=to_phase,
+        owned_files=owned_files, shadow=shadow,
+    )
+
+    if not matrix_summary["transition_allowed"]:
+        decision = {
+            "allowed": False,
+            "from_phase": from_phase, "to_phase": to_phase,
+            "reason": "verifier_matrix_blocked",
+            "verifier_summary": matrix_summary,
+            "shadow": shadow,
+        }
+        if shadow:
+            _append_event(track_id, {
+                "event": "shadow_decision",
+                "decision_kind": "phase_transition",
+                "would_emit_phase_changed": False,
+                "from_phase": from_phase, "to_phase": to_phase,
+                "reason": "verifier_matrix_blocked",
+                "block_reasons": matrix_summary["block_reasons"],
+            })
+        else:
+            _append_event(track_id, {
+                "event": "phase_transition_blocked",
+                "from_phase": from_phase, "to_phase": to_phase,
+                "reason": "verifier_matrix_blocked",
+                "block_reasons": matrix_summary["block_reasons"],
+            })
+        return decision
+
+    decision = {
+        "allowed": True,
+        "from_phase": from_phase, "to_phase": to_phase,
+        "verifier_summary": matrix_summary,
+        "shadow": shadow,
+    }
+    if shadow:
+        _append_event(track_id, {
+            "event": "shadow_decision",
+            "decision_kind": "phase_transition",
+            "would_emit_phase_changed": True,
+            "from_phase": from_phase, "to_phase": to_phase,
+            "verifier_budget_ms_used": matrix_summary["budget_ms_used"],
+        })
+    else:
+        _append_phase_event(
+            track_id, from_phase=from_phase, to_phase=to_phase,
+            evidence=sorted(evidence),
+        )
+    return decision
 
 
 # ---------------------------------------------------------------------------
@@ -353,6 +1652,156 @@ def validate_sprint_contract(node: dict[str, Any], route_id: str) -> dict[str, A
     elif len(criteria) < MIN_ACCEPTANCE_CRITERIA_R3_R4:
         missing.append(f"acceptance_criteria_below_minimum:need_{MIN_ACCEPTANCE_CRITERIA_R3_R4}_have_{len(criteria)}")
     return {"valid": len(missing) == 0, "missing": missing}
+
+
+def phase_transition_allowed(
+    from_phase: str,
+    to_phase: str,
+    route: str,
+    evidence_keys: set[str] | frozenset[str],
+    *,
+    retry_count: int = 0,
+) -> dict[str, Any]:
+    """Predicate: is this phase edge legal under the transition table?
+
+    Slice 1a primitive: pure function over the transition table. Does NOT
+    enforce — callers in Slices 1b/3 will gate dispatch on the result.
+
+    Returns:
+        {
+            "allowed": bool,
+            "missing": [evidence_key, ...],  # missing required evidence
+            "reason": str | None,            # short failure reason if not allowed
+        }
+    """
+    # Initial entry — no prior phase, target must be PHASE_INITIAL
+    if from_phase is None:
+        if to_phase == PHASE_INITIAL:
+            return {"allowed": True, "missing": [], "reason": None}
+        return {
+            "allowed": False, "missing": [],
+            "reason": f"initial_phase_must_be_{PHASE_INITIAL}",
+        }
+
+    edge = (from_phase, to_phase)
+    if edge not in PHASE_TRANSITION_TABLE:
+        return {
+            "allowed": False, "missing": [],
+            "reason": f"illegal_edge:{from_phase}->{to_phase}",
+        }
+
+    # Retry budget for verify->build
+    budget = PHASE_RETRY_BUDGET.get(edge)
+    if budget is not None and retry_count >= budget:
+        return {
+            "allowed": False, "missing": [],
+            "reason": f"retry_budget_exhausted:{from_phase}->{to_phase}:max_{budget}",
+        }
+
+    required = PHASE_TRANSITION_TABLE[edge]
+    missing = sorted(required - set(evidence_keys))
+    if missing:
+        return {
+            "allowed": False, "missing": missing,
+            "reason": "missing_required_evidence",
+        }
+    return {"allowed": True, "missing": [], "reason": None}
+
+
+def route_change_reconcile(
+    from_route: str,
+    to_route: str,
+    current_evidence_keys: set[str] | frozenset[str],
+) -> dict[str, Any]:
+    """Compute the route-change reconciliation outcome.
+
+    Implements the generic stricter-route rule plus special-case overrides
+    from plan-final §1. Slice 1a primitive: returns the decision; callers
+    in later slices will emit phase_changed + invalidation events.
+
+    Returns:
+        {
+            "applies": bool,           # False if no change required
+            "target_phase": str | None,
+            "invalidate": [str, ...],
+            "required_backfill": [str, ...],
+            "dispatch": "PAUSE" | "resume" | None,
+            "rule": "special_case" | "generic_stricter" | "noop",
+        }
+    """
+    if from_route == to_route:
+        return {
+            "applies": False, "target_phase": None,
+            "invalidate": [], "required_backfill": [],
+            "dispatch": None, "rule": "noop",
+        }
+
+    # Special-case rows override the generic rule
+    special = ROUTE_CHANGE_SPECIAL_CASES.get((from_route, to_route))
+    if special is not None:
+        return {
+            "applies": True,
+            "target_phase": special["target_phase"],
+            "invalidate": list(special["invalidate"]),
+            "required_backfill": list(special["required_backfill"]),
+            "dispatch": special["dispatch"],
+            "rule": "special_case",
+        }
+
+    # Generic stricter-route rule: only applies to upward/corrective changes
+    # within the ordered set {R1, R2, R3, R4}.
+    if from_route not in ROUTE_STRICTNESS or to_route not in ROUTE_STRICTNESS:
+        return {
+            "applies": False, "target_phase": None,
+            "invalidate": [], "required_backfill": [],
+            "dispatch": None, "rule": "noop",
+        }
+    if ROUTE_STRICTNESS[to_route] <= ROUTE_STRICTNESS[from_route]:
+        # Downgrade or sideways — out of scope for Slice 1a.
+        return {
+            "applies": False, "target_phase": None,
+            "invalidate": [], "required_backfill": [],
+            "dispatch": None, "rule": "noop",
+        }
+
+    # Stricter route: target_phase = earliest phase whose required evidence
+    # is missing under new_route. Compute as union of inbound-edge evidence
+    # plus route-level required evidence, walking forward from discovery.
+    new_route_required = ROUTE_REQUIRED_EVIDENCE.get(to_route, frozenset())
+    have = set(current_evidence_keys)
+    target_phase = PHASE_INITIAL
+    # Walk discovery -> design -> build -> verify -> closeout; first phase
+    # whose inbound edge evidence isn't fully satisfied is the target.
+    inbound_chain = [
+        ("design", PHASE_TRANSITION_TABLE[("discovery", "design")]),
+        ("build", PHASE_TRANSITION_TABLE[("design", "build")]),
+        ("verify", PHASE_TRANSITION_TABLE[("build", "verify")]),
+        ("closeout", PHASE_TRANSITION_TABLE[("verify", "closeout")]),
+    ]
+    for phase_name, required in inbound_chain:
+        if not required.issubset(have):
+            target_phase = phase_name
+            break
+    # Route-level evidence stacks on top — if missing, reset further back.
+    if not new_route_required.issubset(have):
+        target_phase = "discovery"
+
+    required_backfill = sorted(
+        (set().union(*[r for _, r in inbound_chain]) | new_route_required) - have
+    )
+
+    return {
+        "applies": True,
+        "target_phase": target_phase,
+        # Invalidate artifacts produced under weaker route and lacking new_route's tags.
+        # Slice 1a records the rule; consumer in later slices does the actual GC.
+        "invalidate": [f"artifacts_tagged_produced_under:{from_route}_lacking:"
+                       + ",".join(sorted(new_route_required))]
+                       if new_route_required else [],
+        "required_backfill": required_backfill,
+        "dispatch": "PAUSE" if required_backfill else "resume",
+        "rule": "generic_stricter",
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -584,6 +2033,7 @@ def compile_policy_envelope(
             "no_frontier_movement_max": NO_FRONTIER_MOVEMENT_MAX,
             "verification_profile": _verification_profile(route["route_id"], ui_detected=ui_detection["is_ui_work"]),
             "ui_detection": ui_detection,
+            "worker_runtime": _resolve_worker_runtime(route, manifest),
         },
         "soft_policy": soft_policy or {},
         "preflight": preflight,
@@ -605,19 +2055,60 @@ def _verification_profile(route_id: str, *, ui_detected: bool = False) -> str:
     return base
 
 
+# Slice 4 (heterogeneous fleet contract): valid worker_runtime values.
+# `claude` = direct claude dispatch (current default); `goose` = goose ACP via
+# ~/.claude/bin/goose_dispatch.py (subscription path); `opencode` = anthropic-
+# concurrency-system runner.
+VALID_WORKER_RUNTIMES = ("claude", "goose", "opencode")
+DEFAULT_WORKER_RUNTIME = "claude"
+
+
+def _resolve_worker_runtime(route: dict[str, Any], manifest: dict[str, Any]) -> str:
+    """Resolve worker_runtime for a route using the standard override chain.
+
+    Precedence (most specific first):
+      1. route.profile_overrides.worker.worker_runtime
+      2. manifest.profiles.worker.worker_runtime
+      3. DEFAULT_WORKER_RUNTIME ("claude")
+
+    See ~/.claude/plans/users-chadsimon-thoughts-md-take-a-giggly-moore.md slice 4
+    for the heterogeneous fleet contract.
+    """
+    worker_override = route.get("profile_overrides", {}).get("worker", {})
+    candidate = worker_override.get("worker_runtime")
+    if candidate in VALID_WORKER_RUNTIMES:
+        return candidate
+    profile_default = manifest.get("profiles", {}).get("worker", {}).get("worker_runtime")
+    if profile_default in VALID_WORKER_RUNTIMES:
+        return profile_default
+    return DEFAULT_WORKER_RUNTIME
+
+
 def _build_verification_hints(policy: dict[str, Any], node: dict[str, Any]) -> dict[str, Any] | None:
-    """Build advisory Playwright verification hints for the executing session."""
+    """Build verification hints for the executing session.
+
+    When the verification_profile is ``browser_e2e`` (UI work detected on R3/R4), browser-e2e
+    coverage is REQUIRED, not advisory. The ``test_breadth_check`` postflight gate (configured in
+    route_manifest.json's ``postflight.gate_chain``) enforces breadth presence before slice closure.
+    See ``~/.claude/standards/testing-standard.md`` for the full breadth/escalation rules.
+    """
     route_policy = policy.get("route_policy", {})
     profile = route_policy.get("verification_profile", "slice_only")
     ui = route_policy.get("ui_detection", {})
     if profile != "browser_e2e" and not ui.get("is_ui_work", False):
         return None
     return {
+        # Legacy key kept for backward-compat with skills/drive/SKILL.md and downstream evaluators.
         "playwright_recommended": True,
+        # New keys: testing-standard v1.0 enforcement signal.
+        "playwright_required": True,
+        "required": True,
+        "testing_standard": "/Users/chadsimon/.claude/standards/testing-standard.md",
+        "enforced_by": "test_breadth_check (route_manifest.json postflight.gate_chain)",
+        "required_breadths_hint": ["full", "browser-e2e"],
         "verification_profile": profile,
         "ui_detection": ui,
-        "advisory": True,
-        "suggested_workflow": [
+        "workflow": [
             "Start dev server if not running",
             "browser_navigate to relevant page",
             "browser_snapshot to verify DOM state",
@@ -665,7 +2156,7 @@ def build_evaluator_dispatch(
         "action": "evaluate",
         "track_id": track_id,
         "slice_id": slice_id,
-        "evaluator_model_hint": "claude-haiku-4-5",
+        "evaluator_model_hint": "haiku",
         "contract": {
             "objective": contract.get("objective", ""),
             "acceptance_criteria": contract.get("acceptance_criteria", []),
@@ -1741,6 +3232,25 @@ def dispatch_track(track_id: str) -> dict[str, Any]:
             "contract_validation": contract_check,
         }
 
+    # Slice 1c: pre-dispatch baseline capture (no enforcement; Slice 3 acts).
+    # Wrapped in a try so a baseline failure never blocks dispatch.
+    try:
+        cwd = policy.get("hard_policy", {}).get("cwd", "")
+        if cwd:
+            capture_baselines(
+                track_id,
+                cwd=cwd,
+                route=route_id,
+                owned_files=node.get("owned_scope", []),
+            )
+    except Exception as e:  # noqa: BLE001 — defensive; baseline must not block dispatch
+        _append_event(track_id, {
+            "event": "baseline_unavailable",
+            "command_id": None,
+            "reason": "capture_exception",
+            "error": f"{type(e).__name__}: {e}",
+        })
+
     # Dispatch inline (R1/R2) or mark for governed dispatch (R3/R4)
     node["state"] = "in_progress"
     governance["dispatch_count"] += 1
@@ -1767,11 +3277,38 @@ def dispatch_track(track_id: str) -> dict[str, Any]:
         "slice_id": slice_id,
         "slice_contract": node.get("slice_contract", {}),
         "governance": governance,
+        # Slice 4: heterogeneous fleet — surface worker_runtime so the caller
+        # picks the right invocation path (claude direct / goose_dispatch.py /
+        # anthropic-concurrency-system).
+        "worker_runtime": policy.get("route_policy", {}).get("worker_runtime", DEFAULT_WORKER_RUNTIME),
     }
+    if result["worker_runtime"] != DEFAULT_WORKER_RUNTIME:
+        result["worker_runtime_invocation"] = _worker_runtime_invocation(result["worker_runtime"])
     verification_hints = _build_verification_hints(policy, node)
     if verification_hints:
         result["verification_hints"] = verification_hints
     return result
+
+
+def _worker_runtime_invocation(runtime: str) -> dict[str, Any]:
+    """Return the canonical invocation hint for a non-default worker_runtime."""
+    if runtime == "goose":
+        return {
+            "runtime": "goose",
+            "binary": "/Users/chadsimon/.claude/bin/goose_dispatch.py",
+            "via": "goose ACP plugin → Codex/Claude Pro-Max subscription",
+            "cost_model": "subscription (no per-token billing)",
+            "throttle": "rate-limit-aware (5h Pro/Max windows)",
+        }
+    if runtime == "opencode":
+        return {
+            "runtime": "opencode",
+            "binary": "opencode",
+            "via": "anthropic-concurrency-system runner",
+            "cost_model": "subscription (OpenCode Pro/Max)",
+            "throttle": "concurrency-tuned (98+ parallel sessions max)",
+        }
+    return {"runtime": runtime}
 
 
 # ---------------------------------------------------------------------------
@@ -1976,9 +3513,21 @@ def cycle_track(
     *,
     max_cycles: int = 1,
     dry_run: bool = False,
+    shadow: bool = False,
 ) -> dict[str, Any]:
-    """Run one or more cycle iterations on a track."""
+    """Run one or more cycle iterations on a track.
+
+    shadow=True (Slice 3): emit shadow_decision events for would-be actions
+    instead of dispatching them. Layer-3 validation (analyze.py
+    shadow-compare) consumes the resulting event log.
+    """
     cycles = []
+    if shadow and not dry_run:
+        _append_event(track_id, {
+            "event": "shadow_decision",
+            "decision_kind": "cycle_session_started",
+            "max_cycles": max_cycles,
+        })
 
     for cycle_idx in range(max_cycles):
         td = track_dir(track_id)
@@ -1991,6 +3540,20 @@ def cycle_track(
         # Reconcile
         reconcile_result = reconcile_track(track_id, dry_run=dry_run)
 
+        # Slice 1b: phase + route observable at cycle start.
+        route_id = policy.get("hard_policy", {}).get("route_id", "")
+        phase_at_start = current_phase(_read_events(track_id))
+
+        # Slice 1b: question selection (R1 bypassed inside selector).
+        selected_questions = select_phase_questions(phase_at_start, route_id)
+        if not dry_run and selected_questions:
+            _append_question_selection(
+                track_id,
+                phase=phase_at_start,
+                route=route_id,
+                questions=selected_questions,
+            )
+
         # Anticipate
         anticipation = _build_anticipation(
             track_id=track_id,
@@ -1999,6 +3562,12 @@ def cycle_track(
             governance=governance,
             maintenance=maintenance,
         )
+
+        # Slice 1b: capture before-state for observable kinds (post-anticipate
+        # so next_action source has its target_ref; pre-action so we can diff).
+        before_states = _capture_observable_states(
+            track_id, state, anticipation=anticipation,
+        ) if not dry_run else None
 
         action = anticipation["recommended_action"]
         action_result = {"action": action, "status": "planned" if dry_run else "pending"}
@@ -2062,6 +3631,92 @@ def cycle_track(
             "action_status": action_result["status"],
         })
 
+        # Slice 1b: post-action decision_record emission for selected questions.
+        # Re-load state to pick up any mutations from the action.
+        decisions_recorded: list[dict[str, Any]] = []
+        if before_states is not None:
+            state_after = _load_json(td / "objective.state.json")
+            # Anticipation values represent the action just dispatched, so
+            # next_action's after-state equals the pre-state for this slice
+            # (the action has been launched, not re-anticipated). Capture
+            # what's observable now.
+            after_states = _capture_observable_states(
+                track_id, state_after, anticipation=anticipation,
+            )
+            # For each selected question with a targets_decision_kind, emit
+            # a decision_record. Auto-generate no_change_reason when unchanged.
+            for q in selected_questions:
+                kind = q.get("targets_decision_kind")
+                if kind not in OBSERVABLE_DECISION_KINDS:
+                    continue
+                before = before_states[kind]
+                after = after_states[kind]
+                changed = state_hash(before) != state_hash(after)
+                no_change_reason = (
+                    None if changed
+                    else f"state_unchanged_after_{action}"
+                )
+                event = _append_decision_record(
+                    track_id,
+                    decision_kind=kind,
+                    before_state=before,
+                    after_state=after,
+                    triggered_by_question_id=q["id"],
+                    no_change_reason=no_change_reason,
+                )
+                decisions_recorded.append({
+                    "kind": kind, "changed": event["changed"],
+                    "triggered_by_question_id": q["id"],
+                })
+
+        # Slice 3-wire: auto-advance phase based on the action just executed.
+        # Synthesizes evidence keys from observable events and walks the
+        # phase chain toward the intent target. Transitions that fail the
+        # phase-guard or verifier matrix are recorded (phase_transition_blocked)
+        # and the walk stops; nothing throws.
+        cwd_for_advance = policy.get("hard_policy", {}).get("cwd", "")
+        target_intent = _ACTION_TO_PHASE_INTENT.get(action)
+        if target_intent and cwd_for_advance:
+            # Re-load state after the action — dispatch may have mutated the
+            # frontier and node states.
+            state_after_action = _load_json(td / "objective.state.json")
+            slice_owned = _active_slice_owned_files(
+                state_after_action,
+                action=action, action_result=action_result,
+                anticipation=anticipation,
+            )
+            _maybe_auto_advance_phase(
+                track_id,
+                target_phase=target_intent,
+                route=route_id,
+                cwd=cwd_for_advance,
+                owned_files=slice_owned,
+                shadow=shadow,
+            )
+
+        # Slice 1b: cycle_summary event (additive to cycle_completed).
+        # Token / wall-clock counts come from Claude Code layer; null here.
+        phase_at_end = current_phase(_read_events(track_id))
+        _emit_cycle_summary(
+            track_id,
+            cycle_idx=cycle_idx,
+            route=route_id,
+            recommended_action=action,
+            action_status=action_result["status"],
+            questions_fired=[q["id"] for q in selected_questions],
+            decisions_recorded=decisions_recorded,
+            phase_at_start=phase_at_start,
+            phase_at_end=phase_at_end,
+        )
+
+        # Slice 1b: track_summary on close.
+        if action_result["status"] == "closed":
+            closure = action_result.get("closure", {})
+            _emit_track_summary(
+                track_id,
+                closure_state=closure.get("closure_state", "closed"),
+            )
+
         cycles.append({
             "cycle": cycle_idx,
             "anticipation": anticipation,
@@ -2100,8 +3755,14 @@ def initialize_track(
     route_override: str | None = None,
     soft_policy: dict[str, Any] | None = None,
     include_memory: bool = True,
+    invoker: str | None = None,
 ) -> dict[str, Any]:
-    """Initialize a new objective track with all state."""
+    """Initialize a new objective track with all state.
+
+    invoker: optional slash-command name that triggered this track
+    (e.g., "drive", "build", "govern"). Recorded in state and session index
+    to support orchestration-surface usage audits.
+    """
     cwd = os.path.realpath(cwd)
     track_id = build_track_id(task, cwd)
     td = track_dir(track_id)
@@ -2148,6 +3809,7 @@ def initialize_track(
         "task": task,
         "cwd": cwd,
         "mode": mode,
+        "invoker": invoker,
         "views": {
             "graph": graph,
             "frontier": frontier,
@@ -2175,6 +3837,7 @@ def initialize_track(
             "task": task,
             "cwd": cwd,
             "mode": mode,
+            "invoker": invoker,
             "route_id": route["route_id"],
             "preflight_classification": preflight["classification"],
         })
@@ -2189,7 +3852,7 @@ def initialize_track(
         )
 
     # Register in session index
-    _register_track(track_id, cwd, route["route_id"])
+    _register_track(track_id, cwd, route["route_id"], invoker=invoker)
 
     return {
         "track_id": track_id,
@@ -2203,13 +3866,14 @@ def initialize_track(
     }
 
 
-def _register_track(track_id: str, cwd: str, route_id: str) -> None:
+def _register_track(track_id: str, cwd: str, route_id: str, *, invoker: str | None = None) -> None:
     """Register track in session index."""
     index_path = AUTONOMY_DIR / "session_index.json"
     index = _load_json(index_path) if index_path.exists() else {"tracks": {}}
     index["tracks"][track_id] = {
         "cwd": cwd,
         "route_id": route_id,
+        "invoker": invoker,
         "registered_at": now_iso(),
     }
     _save_json(index_path, index)

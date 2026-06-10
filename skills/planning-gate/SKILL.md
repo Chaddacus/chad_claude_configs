@@ -22,7 +22,7 @@ This skill is the canonical operator workflow for planning-gate. Global and work
 ## Canonical Inputs
 
 - runtime contract source:
-  - `/Users/chadsimon/.claude/state/route_manifest.json`
+  - `~/.claude/state/route_manifest.json`
 
 ## Required Workflow
 
@@ -73,6 +73,6 @@ This skill owns the procedural planning-gate workflow. It does not own:
 - general review formatting rules
 
 Those live in:
-- `/Users/chadsimon/.claude/CLAUDE.md`
+- `~/.claude/CLAUDE.md`
 - project/workspace `CLAUDE.md`
-- `/Users/chadsimon/.claude/state/route_manifest.json`
+- `~/.claude/state/route_manifest.json`
