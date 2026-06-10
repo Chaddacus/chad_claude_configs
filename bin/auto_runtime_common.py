@@ -93,6 +93,7 @@ REPLAYABLE_EVENTS = {
     "manager_cycle_completed",
     "task_run_final_review_recorded",
     "git_checkpoint_recorded",
+    "omnimem_checkpoint_recorded",
     "wake_ceremony_completed",
     "evaluator_dispatched",
     "evaluator_verdict",
@@ -116,6 +117,7 @@ AUDIT_ONLY_EVENTS = {
     "governed_advisor_checkpoint",
     "memory_lifecycle_reconciled",
     "git_checkpoint_skipped",
+    "omnimem_checkpoint_skipped",
 }
 
 UI_KEYWORDS = {
@@ -1568,6 +1570,43 @@ def _git_checkpoint_on_acceptance(
         return {"status": "error", "reason": "git_commit_failed", "output": out[:500]}
     _, sha = _run_git(["rev-parse", "HEAD"], cwd)
     return {"status": "committed", "commit_sha": sha, "commit_message": msg, "branch": current_branch}
+
+
+def _omni_mem_checkpoint(
+    track_id: str, node_id: str, node: dict[str, Any], cwd: str, boundary: str,
+) -> dict[str, Any]:
+    """Emit an omni-mem checkpoint at a slice boundary (best-effort, never raises).
+
+    Boundary detection is deterministic and lives in the caller (accepted slice ->
+    slice_complete, blocked slice -> escalation); the summary is produced by
+    omni-mem's own summarizer over the raw observation span. Gated by
+    OMNI_MEM_CHECKPOINTS_ENABLED (default off) so existing tracks are unchanged
+    until the hub opts in. Targets the omni-mem container by default (durable DB at
+    /data/omni-mem.db); OMNI_MEM_CONTAINER="" falls back to a local CLI.
+    """
+    if os.environ.get("OMNI_MEM_CHECKPOINTS_ENABLED", "").lower() not in ("1", "true", "yes"):
+        return {"status": "skipped", "reason": "disabled"}
+    workspace_id = os.path.basename(os.path.normpath(cwd)) if cwd else "global"
+    cli = os.environ.get("OMNI_MEM_CLI_BIN", "omni-mem")
+    container = os.environ.get("OMNI_MEM_CONTAINER", "omni-mem")
+    args = [
+        cli, "generate_checkpoint",
+        "--workspaceId", workspace_id,
+        "--sessionId", track_id,
+        "--boundary", boundary,
+    ]
+    cmd = (["docker", "exec", container] + args) if container else args
+    try:
+        timeout = int(os.environ.get("OMNI_MEM_CHECKPOINT_TIMEOUT", "20"))
+    except ValueError:
+        timeout = 20
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as exc:
+        return {"status": "error", "reason": type(exc).__name__}
+    if result.returncode != 0:
+        return {"status": "error", "reason": "cli_failed", "output": (result.stderr or result.stdout)[:300]}
+    return {"status": "recorded", "workspace_id": workspace_id, "boundary": boundary}
 
 
 # ---------------------------------------------------------------------------
@@ -3433,9 +3472,35 @@ def update_node_state(
                     "reason": checkpoint_result.get("reason", ""),
                 })
 
+    # omni-mem checkpoint on slice boundary: deterministic boundary detection
+    # (accepted slice -> slice_complete, blocked slice -> escalation) feeds the
+    # checkpoint layer's rollup. The git checkpoint commits code; this rolls up the
+    # captain's raw observation thread. Opt-in via OMNI_MEM_CHECKPOINTS_ENABLED.
+    omni_checkpoint = None
+    if node.get("kind") == "slice" and new_state in ("accepted", "blocked"):
+        boundary = "slice_complete" if new_state == "accepted" else "escalation"
+        cp_cwd = state.get("cwd") or state.get("views", {}).get("policy", {}).get("hard_policy", {}).get("cwd", "")
+        omni_checkpoint = _omni_mem_checkpoint(track_id, node_id, node, cp_cwd, boundary)
+        if omni_checkpoint.get("status") == "recorded":
+            _append_event(track_id, {
+                "event": "omnimem_checkpoint_recorded",
+                "node_id": node_id,
+                "boundary": boundary,
+                "workspace_id": omni_checkpoint.get("workspace_id"),
+            })
+        elif omni_checkpoint.get("status") != "skipped":
+            _append_event(track_id, {
+                "event": "omnimem_checkpoint_skipped",
+                "node_id": node_id,
+                "boundary": boundary,
+                "reason": omni_checkpoint.get("reason", "unknown"),
+            })
+
     result = {"node_id": node_id, "old_state": old_state, "new_state": new_state}
     if checkpoint_result:
         result["git_checkpoint"] = checkpoint_result
+    if omni_checkpoint and omni_checkpoint.get("status") != "skipped":
+        result["omni_mem_checkpoint"] = omni_checkpoint
     return result
 
 
