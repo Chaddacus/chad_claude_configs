@@ -67,10 +67,15 @@ def strippable_text(command: str) -> str:
     """Text used for BLOCK_PATTERNS matching. Quoted spans are data, not
     commands (evidence strings, commit messages, log text constantly NAME
     destructive patterns) — strip them, unless the command is an inline
-    shell/interpreter exec whose quoted argument IS the command."""
-    if INLINE_EXEC.search(command):
+    shell/interpreter exec whose quoted argument IS the command.
+
+    The inline-exec test runs on the STRIPPED text: a real `sh -c` sits
+    outside the quotes; the words "sh -c" inside a quoted string are data
+    (this distinction false-positived on first deploy)."""
+    stripped = _SQUOTED.sub(" ", _DQUOTED.sub(" ", command))
+    if INLINE_EXEC.search(stripped):
         return command
-    return _SQUOTED.sub(" ", _DQUOTED.sub(" ", command))
+    return stripped
 
 
 def sql_mass_mutation(command: str) -> bool:

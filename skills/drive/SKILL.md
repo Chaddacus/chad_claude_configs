@@ -192,6 +192,25 @@ On success:
 
 ---
 
+## Composition Patterns
+
+Named orchestration repertoire (Boris/Anthropic, adopted 2026-06-09). When
+decomposing, pick the named shape instead of improvising a topology:
+
+| Pattern | Shape | Use when |
+|---------|-------|----------|
+| classify-and-act | one classifier → deterministic dispatch to a handler | bounded input domain, known handler set (see CLAUDE.md "judgment, not deterministic work") |
+| fan-out-synthesize | N parallel workers → one synthesizer | independent slices, low file conflict; the default for parallel work |
+| adversarial-verification | builder + independent checker with conflicting incentives | claims need hostile review (reviewer/implementation-checker pair) |
+| generate-and-filter | overproduce candidates → deterministic filter | cheap generation, checkable acceptance predicate |
+| tournament | candidates compete pairwise → winner advances | ranking quality without an absolute rubric |
+| loop-until-done | single worker + verify gate, iterate to acceptance | one slice, evaluator loop (auto_runtime cycle's default) |
+
+Constraints unchanged: single-lane default, bounded swarm only with
+justification, never parallelize slices touching shared files.
+
+---
+
 ## Token Budget
 
 | Default | Why |

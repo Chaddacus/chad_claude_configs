@@ -28,6 +28,7 @@ behavioral; lookup material lives here). This file is pointer-only — no rules.
 
 ## Standards and runbooks
 
+- Runtime debugging / fault isolation (`--safe-mode`, hooks, guards): `/Users/chadsimon/.claude/standards/DEBUGGING.md`
 - Adaptive memory: `/Users/chadsimon/.claude/standards/ADAPTIVE_MEMORY_RUNBOOK.md`
 - Ralph/postflight: `/Users/chadsimon/.claude/standards/RALPH_LOOP_RUNBOOK.md`
 - Route canary: `/Users/chadsimon/.claude/standards/ROUTE_CANARY_RUNBOOK.md`

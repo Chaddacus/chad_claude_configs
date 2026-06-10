@@ -1,6 +1,7 @@
 ---
 name: ecosystem-update
 description: Daily self-improvement loop — scans GitHub, arxiv, and Claude community sources for new patterns, diffs against current setup, implements Quick Wins, writes report. Use --dry-run for report only.
+context: fork
 policy_doc_kind: skill
 classification: canonical
 canonical_owner: self

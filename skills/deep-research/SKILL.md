@@ -5,6 +5,7 @@ policy_doc_kind: skill
 classification: canonical
 authority_level: procedural
 in_verifier_scope: true
+context: fork
 ---
 
 # deep-research — Evidence-Bound Web & Documentation Research
