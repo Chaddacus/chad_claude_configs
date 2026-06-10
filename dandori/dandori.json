@@ -1,0 +1,244 @@
+{
+  "version": "dandori.v1",
+  "generated_from": {
+    "route_manifest_version": "route.v2",
+    "source": "/Users/chadsimon/.claude/state/route_manifest.json"
+  },
+  "axis": {
+    "principle": "The critical path is sacred. The user waiting is the machine stopped.",
+    "headline_metric": "changeover_time_seconds (prompt -> first useful action)",
+    "setup_classes": {
+      "internal": "runs while the user/turn is blocked (uchi-dandori / \u5185\u6bb5\u53d6\u308a)",
+      "external": "runs off the critical path: pre-staged, speculative, or background (soto-dandori / \u5916\u6bb5\u53d6\u308a)"
+    },
+    "goal": "convert internal setup to external until changeover time is single-digit seconds, losing no governance"
+  },
+  "coordinator": {
+    "model": "claude-opus-4-7",
+    "effort": "medium"
+  },
+  "profiles": {
+    "worker": {
+      "model": "claude-sonnet-4-6",
+      "effort": "medium",
+      "worker_runtime": "claude"
+    },
+    "explorer": {
+      "model": "claude-haiku-4-5",
+      "effort": "low"
+    },
+    "planner": {
+      "model": "claude-opus-4-7",
+      "effort": "high"
+    },
+    "reviewer": {
+      "model": "claude-opus-4-7",
+      "effort": "high"
+    }
+  },
+  "routes": {
+    "R1": {
+      "dandori": {
+        "dispatch_budget_cycles": 6,
+        "prep_budget": "none",
+        "verification_gates": []
+      },
+      "_manifest_rule": {
+        "id": "R1",
+        "name": "quick_factual",
+        "route": "coordinator",
+        "risk_class": "low",
+        "execution_shape": "single_lane",
+        "profile_overrides": {
+          "coordinator": {
+            "model": "claude-sonnet-4-6",
+            "effort": "medium"
+          }
+        }
+      }
+    },
+    "R2": {
+      "dandori": {
+        "dispatch_budget_cycles": 12,
+        "prep_budget": "light",
+        "verification_gates": []
+      },
+      "_manifest_rule": {
+        "id": "R2",
+        "name": "low_risk_small_impl",
+        "route": "worker",
+        "risk_class": "medium",
+        "packetization_required": true,
+        "execution_shape": "single_lane",
+        "default_parallelism_policy": "bounded_parallel",
+        "max_parallel_packets": 2,
+        "profile_overrides": {
+          "coordinator": {
+            "model": "claude-sonnet-4-6",
+            "effort": "medium"
+          },
+          "worker": {
+            "model": "claude-sonnet-4-6",
+            "effort": "medium"
+          }
+        }
+      }
+    },
+    "R3": {
+      "dandori": {
+        "dispatch_budget_cycles": 24,
+        "prep_budget": "heavy",
+        "verification_gates": [
+          "validate_plan",
+          "test_breadth_check",
+          "validate_impl",
+          "planning_gate_finalize",
+          "program_close_gate"
+        ]
+      },
+      "_manifest_rule": {
+        "id": "R3",
+        "name": "non_trivial_impl",
+        "route": "planner->worker->reviewer",
+        "risk_class": "medium",
+        "packetization_required": true,
+        "execution_shape": "single_lane",
+        "default_parallelism_policy": "bounded_parallel",
+        "route_swarm_cap": 4,
+        "lane_caps": {
+          "planner": 1,
+          "explorer": 2,
+          "worker": 2,
+          "validator": 2,
+          "reviewer": 1
+        },
+        "frontier_dispatch_order": [
+          "validator",
+          "explorer",
+          "worker",
+          "reviewer"
+        ],
+        "reviewer_barrier_points": [
+          "closure",
+          "high_risk_boundary_shrink"
+        ],
+        "convergence_required_for_closure": true,
+        "profile_overrides": {
+          "planner": {
+            "model": "claude-opus-4-7",
+            "effort": "high"
+          },
+          "worker": {
+            "model": "claude-sonnet-4-6",
+            "effort": "medium"
+          },
+          "explorer": {
+            "model": "claude-haiku-4-5",
+            "effort": "low"
+          },
+          "validator": {
+            "model": "claude-haiku-4-5",
+            "effort": "medium"
+          },
+          "reviewer": {
+            "model": "claude-opus-4-7",
+            "effort": "high"
+          }
+        }
+      }
+    },
+    "R4": {
+      "dandori": {
+        "dispatch_budget_cycles": 40,
+        "prep_budget": "heavy",
+        "verification_gates": [
+          "validate_plan",
+          "test_breadth_check",
+          "validate_impl",
+          "planning_gate_finalize",
+          "program_close_gate"
+        ]
+      },
+      "_manifest_rule": {
+        "id": "R4",
+        "name": "high_risk_impl",
+        "route": "coordinator+reviewer",
+        "risk_class": "high",
+        "packetization_required": true,
+        "execution_shape": "bounded_swarm",
+        "default_parallelism_policy": "bounded_parallel",
+        "route_swarm_cap": 2,
+        "lane_caps": {
+          "planner": 1,
+          "explorer": 1,
+          "worker": 1,
+          "validator": 1,
+          "reviewer": 1
+        },
+        "frontier_dispatch_order": [
+          "validator",
+          "explorer",
+          "worker",
+          "reviewer"
+        ],
+        "reviewer_barrier_points": [
+          "closure",
+          "high_risk_boundary_shrink",
+          "adaptation_generated_packets"
+        ],
+        "convergence_required_for_closure": true,
+        "profile_overrides": {
+          "coordinator": {
+            "model": "claude-opus-4-7",
+            "effort": "medium"
+          },
+          "worker": {
+            "model": "claude-sonnet-4-6",
+            "effort": "medium"
+          },
+          "explorer": {
+            "model": "claude-haiku-4-5",
+            "effort": "low"
+          },
+          "validator": {
+            "model": "claude-haiku-4-5",
+            "effort": "medium"
+          },
+          "reviewer": {
+            "model": "claude-opus-4-7",
+            "effort": "xhigh"
+          }
+        }
+      }
+    },
+    "R5": {
+      "dandori": {
+        "dispatch_budget_cycles": 4,
+        "prep_budget": "clarify_first",
+        "verification_gates": []
+      },
+      "_manifest_rule": {
+        "id": "R5",
+        "name": "ambiguous",
+        "route": "coordinator",
+        "risk_class": "unknown",
+        "execution_shape": "single_lane"
+      }
+    }
+  },
+  "postflight": {
+    "gate_chain": [
+      "validate_plan",
+      "test_breadth_check",
+      "validate_impl",
+      "planning_gate_finalize",
+      "program_close_gate"
+    ],
+    "routes": [
+      "R3",
+      "R4"
+    ],
+    "mode": "enforce"
+  },
+  "envelope_ref": "state/control_plane.json"
+}

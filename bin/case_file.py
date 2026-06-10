@@ -84,13 +84,39 @@ def verify_ledger_path(session_id: str, suffix: str = "") -> Path:
 
 
 def cleanup_verify_ledgers(max_age_hours: float = 24.0) -> None:
-    """Drop ledger files older than max_age_hours. Best-effort."""
+    """Sweep session-scoped state. Best-effort, never raises.
+
+    - verify ledgers: older than max_age_hours (default 24h)
+    - case dirs (state/cases/<sid>/) and per-session stop-gate audit logs:
+      older than 14 days. Without this, the per-session keying introduced
+      2026-06-09 accumulates one dir/file per session forever."""
     cutoff = time.time() - max_age_hours * 3600
     try:
         for p in _VERIFY_LEDGER_DIR.iterdir():
             try:
                 if p.is_file() and p.stat().st_mtime < cutoff:
                     p.unlink()
+            except OSError:
+                continue
+    except OSError:
+        pass
+
+    import shutil
+    state = Path(os.path.expanduser("~/.claude/state"))
+    old = time.time() - 14 * 86400
+    try:
+        cases = state / "cases"
+        if cases.is_dir():
+            for d in cases.iterdir():
+                try:
+                    if d.is_dir() and d.stat().st_mtime < old:
+                        shutil.rmtree(d, ignore_errors=True)
+                except OSError:
+                    continue
+        for f in state.glob("stop_gate_audit-*.jsonl"):
+            try:
+                if f.stat().st_mtime < old:
+                    f.unlink()
             except OSError:
                 continue
     except OSError:
