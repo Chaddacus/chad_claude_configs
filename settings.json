@@ -84,7 +84,7 @@
   },
   "model": "claude-fable-5[1m]",
   "fallbackModel": [
-    "claude-sonnet-4-6"
+    "sonnet"
   ],
   "hooks": {
     "Stop": [
