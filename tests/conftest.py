@@ -63,6 +63,19 @@ def make_ledger(ledger_path):
 
 
 @pytest.fixture
+def subagent_transcript(tmp_path):
+    """Write a minimal subagent transcript and return its path. The first-entry
+    timestamp sets subagent_verify's edit floor; default epoch-0 start means any
+    positive-timestamped edit counts as 'made by this subagent' (preserves the
+    pre-2026-06-10 test semantics where only `> last_verified` gated firing)."""
+    def _make(start_iso="1970-01-01T00:00:00Z"):
+        p = tmp_path / "subagent_transcript.jsonl"
+        p.write_text(json.dumps({"timestamp": start_iso, "role": "user"}) + "\n")
+        return str(p)
+    return _make
+
+
+@pytest.fixture
 def run_hook(session_id):
     """Runs a hook script as subprocess, returns {stdout, stderr, exit_code, parsed_json}."""
     def _run(script_path, stdin_json=None, env=None, args=None, timeout=10):

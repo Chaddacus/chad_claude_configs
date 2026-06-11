@@ -152,11 +152,13 @@ def test_gate_after_clean(run_hook, ledger_path):
 
 
 @pytest.mark.unit
-def test_subagent_after_dirty(run_hook, ledger_path):
-    """Subagent verify on dirty ledger produces warning output."""
+def test_subagent_after_dirty(run_hook, ledger_path, subagent_transcript):
+    """Subagent verify on dirty ledger produces warning output. Transcript
+    starts at epoch 0 so the edit (recorded at real `now`) counts as made
+    during this subagent's run."""
     run_hook(EDIT_VERIFY_ASYNC, {"tool_name": "Edit", "tool_input": {"file_path": "/tmp/test/x.py"}})
 
-    result = run_hook(SUBAGENT_VERIFY, {})
+    result = run_hook(SUBAGENT_VERIFY, {"transcript_path": subagent_transcript()})
 
     assert result["exit_code"] == 0
     assert result["stdout"].strip() != ""
@@ -164,12 +166,12 @@ def test_subagent_after_dirty(run_hook, ledger_path):
 
 
 @pytest.mark.unit
-def test_subagent_after_clean(run_hook, ledger_path):
+def test_subagent_after_clean(run_hook, ledger_path, subagent_transcript):
     """Subagent verify on clean ledger produces no output."""
     run_hook(EDIT_VERIFY_ASYNC, {"tool_name": "Edit", "tool_input": {"file_path": "/tmp/test/x.py"}})
     run_hook(EDIT_VERIFY_ASYNC, {"tool_name": "Bash", "tool_input": {"command": "npm test"}, "tool_response": {"exit_code": 0}})
 
-    result = run_hook(SUBAGENT_VERIFY, {})
+    result = run_hook(SUBAGENT_VERIFY, {"transcript_path": subagent_transcript()})
 
     assert result["exit_code"] == 0
     assert result["stdout"].strip() == ""
