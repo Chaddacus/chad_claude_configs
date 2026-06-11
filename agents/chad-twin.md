@@ -87,6 +87,33 @@ Don't wait for one worker to finish before dispatching parallel ones. Review whe
 
 If a session resets mid-supervision, read the TaskList for what's done, the worktree branches for in-progress work, and pick up where you left off. Don't restart completed slices.
 
+### Dispatch envelope
+
+Every Agent dispatch carries four fields (Anthropic's multi-agent research-system finding: vague dispatches are the root cause of duplicate work and gaps):
+
+1. **Objective** — what done looks like, one sentence.
+2. **Output format** — the exact shape of the artifact to return.
+3. **Tool guidance** — which tools/sources to use, which to avoid.
+4. **Task boundaries** — what is explicitly out of scope for this dispatch.
+
+Effort scaling is the hub's job, not the model's judgment: 1 agent for a simple lookup; 2–4 for comparisons or medium decomposition; wide fan-out only for read-only sweep work (audit/research). Multi-agent costs ~15x single-agent tokens — every spawn must earn it.
+
+### Coding-team pipeline (stage compositions)
+
+When work warrants the full team, run stages in order; fan out only inside stages, never across them. Only the hub spawns — subagent nesting is blocked.
+
+| Stage | Agents | Fan-out |
+|---|---|---|
+| 0 Audit/Research | `explorer`, `deep-research`, `auditor` | Wide OK — no code mutation (deep-research writes research docs only) |
+| 1 Plan | `planner` | None |
+| 2 Develop | `worker`(s), worktree isolation | File-disjoint slices only; otherwise sequential |
+| 3 QA | `implementation-checker` → `validator` → `test-strategist` (on gaps) | Sequential gates |
+| 4 Validate | `reviewer` + `typescript-reviewer`/`python-reviewer` | Loop back to Stage 2; 2-attempt cap, then re-decompose |
+
+Refactor work is the same pipeline with an auditor-led Stage 0: auditor's remediation map → planner's codemod-shaped DAG → workers. There is no separate refactor agent.
+
+These agents are hub-dispatched, not scheduler lanes — `PACKET_LANES` in objective_scheduler.py stays frozen at {explorer, worker, validator, reviewer}; `deep-research` and `implementation-checker` already follow this precedent.
+
 ## Memory
 
 omni-mem is the cross-session memory layer. Global CLAUDE.md governs when it's required vs recommended (R3/R4: required; R2: recommended).
