@@ -5,9 +5,13 @@ When a subagent completes and had write permissions, checks the ledger
 for unverified edits and injects a reminder if found.
 """
 
+from __future__ import annotations
+
 import json
 import os
 import sys
+from datetime import datetime
+from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.environ.get("CLAUDE_HOME", os.path.expanduser("~/.claude")), "bin"))
 from hook_profile import should_run
@@ -27,6 +31,40 @@ CODE_EXTENSIONS = {
     ".cs",
     ".swift",
 }
+
+
+def _subagent_start_floor(hook_input: dict) -> float | None:
+    """Epoch time this subagent began, from its OWN transcript's first entry.
+
+    Subagents inherit the parent's session_id (case_file.py:resolve_session_id),
+    so the verify ledger they resolve to is the PARENT's — full of the parent
+    session's unverified edits. Without a floor, this hook reports the parent's
+    code edits against every subagent stop (the 2026-06-10 fleet-audit incident:
+    25 read-only auditors each nagged about the parent's ~/.claude/*.py edits).
+
+    The subagent's own transcript_path lets us bound "edits made by THIS
+    subagent" to those after it started. Returns None when unresolvable —
+    callers must then suppress (a subagent must not be nagged about edits it
+    cannot be shown to have made)."""
+    tp = hook_input.get("transcript_path")
+    if not tp:
+        return None
+    p = Path(os.path.expanduser(tp))
+    try:
+        with open(p, "r") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    ts = json.loads(line).get("timestamp")
+                except (json.JSONDecodeError, AttributeError):
+                    continue
+                if ts:
+                    return datetime.fromisoformat(str(ts).replace("Z", "+00:00")).timestamp()
+        return p.stat().st_ctime  # transcript exists but no parseable ts
+    except (OSError, ValueError):
+        return None
 
 
 def main():
@@ -60,10 +98,19 @@ def main():
     if last_edit <= 0:
         sys.exit(0)
 
-    # Check for unverified code edits
+    # Scope to edits THIS subagent made: only those after it started. The
+    # ledger is parent-session-scoped, so without this floor the parent's
+    # edits get misattributed to the subagent. No floor → suppress (fail open):
+    # a subagent must not be nagged about edits it cannot be shown to own.
+    start_floor = _subagent_start_floor(hook_input)
+    if start_floor is None:
+        sys.exit(0)
+
+    # Check for unverified code edits made during this subagent's run.
     unverified = []
     for edit in ledger.get("edits", []):
-        if edit.get("timestamp", 0) > last_verified:
+        ts = edit.get("timestamp", 0)
+        if ts > last_verified and ts >= start_floor:
             ext = os.path.splitext(edit.get("file", ""))[1].lower()
             if ext in CODE_EXTENSIONS:
                 unverified.append(edit["file"])

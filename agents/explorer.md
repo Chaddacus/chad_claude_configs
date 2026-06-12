@@ -1,7 +1,7 @@
 ---
 name: explorer
 description: Fast read-only codebase explorer for architecture and dependency mapping.
-tools: Read, Bash, Grep, Glob, Task, WebFetch
+tools: Read, Bash, Grep, Glob, WebFetch
 model: haiku
 maxTurns: 20
 ---

@@ -291,3 +291,57 @@ class TestOutputContract:
         parsed = json.loads(result["stdout"].strip())
         context = parsed["hookSpecificOutput"]["additionalContext"]
         assert "route_hint=R2" in context
+
+
+# ===========================================================================
+# Deliverable-kind tests (advice vs artifact channel read by stop_gate.py)
+# ===========================================================================
+
+
+@pytest.mark.unit
+class TestDeliverableKind:
+    """deliverable_kind: advisory prompts -> advice; anything with an
+    implementation imperative or no advisory signal -> artifact (strict)."""
+
+    def test_advisory_question_is_advice(self):
+        prompt = "what would you think of creating a coding team. do deep research on this concept"
+        assert cp_module.deliverable_kind(prompt) == "advice"
+
+    def test_critique_is_advice(self):
+        assert cp_module.deliverable_kind("adversarially critique the process end to end") == "advice"
+
+    def test_imperative_overrides_advisory(self):
+        # "fix them" makes it artifact even though "reviewer"/review appears
+        prompt = "why did you implement it with so many flaws? fix them, then run a separate reviewer"
+        assert cp_module.deliverable_kind(prompt) == "artifact"
+
+    def test_go_with_recommendations_is_artifact(self):
+        assert cp_module.deliverable_kind("go with your recommendations, run it by codex") == "artifact"
+
+    def test_analyze_plus_patch_is_artifact(self):
+        # Codex finding #6: advisory verb + repair-class imperative
+        assert cp_module.deliverable_kind("analyze the failing tests and patch the implementation") == "artifact"
+
+    def test_review_plus_debug_is_artifact(self):
+        assert cp_module.deliverable_kind("review the race condition and debug the scheduler") == "artifact"
+
+    def test_plain_implementation_is_artifact(self):
+        assert cp_module.deliverable_kind("add retry logic to the sync daemon") == "artifact"
+
+    def test_empty_is_artifact(self):
+        assert cp_module.deliverable_kind("") == "artifact"
+
+    def test_field_written_to_route_file_payload(self):
+        result = cp_module.classify_prompt("explain how the scheduler works")
+        # classify_prompt itself doesn't add the field; main() does — verify
+        # the function used by main() exists and the merge shape is sane.
+        result["deliverable_kind"] = cp_module.deliverable_kind("explain how the scheduler works")
+        assert result["deliverable_kind"] in ("advice", "artifact")
+
+    def test_anti_overrun_injected_for_r3(self):
+        block = cp_module.route_policy_block({"route_hint": "R3"})
+        assert "Anti-overrun patterns" in block
+        assert "Anti-stop patterns" in block
+
+    def test_anti_overrun_not_injected_for_r2(self):
+        assert cp_module.route_policy_block({"route_hint": "R2"}) == ""

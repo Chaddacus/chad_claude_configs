@@ -58,6 +58,7 @@ DEFAULT_CONFIG = {
         "edit_without_verify": True,
         "slice_reconciliation": True,
         "empty_diff_completion": True,
+        "functional_claims": True,  # "operational/working/live" needs an execution run
         "completion_record_required": False,  # set True after agent is trained to file
     },
 }
@@ -79,23 +80,40 @@ def load_config() -> dict:
             pass
     return cfg
 
-# Permission-seeking / report-and-wait shape. Case-insensitive.
-PERMISSION_SEEKING = re.compile(
+# Permission-seeking / report-and-wait shapes. Case-insensitive.
+#
+# Two pools (2026-06-10 redesign). STALL: mid-task permission begging —
+# gated on every prompt kind. DELIVERABLE: recommendation-shaped phrasing —
+# on an advisory prompt (deliverable_kind == "advice" in the route file
+# written by classify_prompt.py) a recommendation IS the completed
+# deliverable, so this pool is gated only when the prompt asked for an
+# artifact. Root cause being fixed: the gate punished the correct shape of
+# a finished advisory answer and pushed unrequested implementation.
+STALL_SEEKING = re.compile(
     r"\b("
     r"should i\b|"
     r"shall i\b|"
     r"would you like\b|"
     r"let me know (if|whether|when)\b|"
     r"ready to (proceed|continue|move on)\b|"
+    r"i'?ll (now|proceed|continue|go ahead)\b|"
+    r"do you want (me to|to)\b|"
     r"want me to\b|"
+    r"if you'?d like\b|"
+    r"happy to (continue|proceed|do)\b"
+    r")",
+    re.IGNORECASE,
+)
+
+# Recommendation phrasing only. Offer-shaped begging ("want me to") is a
+# stall on every prompt kind and lives in STALL_SEEKING (Codex review
+# finding #1, 2026-06-10).
+DELIVERABLE_SEEKING = re.compile(
+    r"\b("
     r"i recommend\b|"
     r"my recommendation\b|"
     r"next steps? (would|will) be\b|"
-    r"the next step (is|would be)\b|"
-    r"i'?ll (now|proceed|continue|go ahead)\b|"
-    r"do you want (me to|to)\b|"
-    r"if you'?d like\b|"
-    r"happy to (continue|proceed|do)\b"
+    r"the next step (is|would be)\b"
     r")",
     re.IGNORECASE,
 )
@@ -111,19 +129,28 @@ ALLOW_MARKERS = re.compile(
     r"\bspend\b.*\bauthoriz(e|ation)\b|"
     # Explicit fork: "A or B — which"
     r"\bwhich (do you|would you|of these)\b|"
-    r"\b(option a|option b|path a|path b)\b"
+    r"\b(option a|option b|path a|path b)\b|"
+    # Ratification-shaped stops: a delivered decision awaiting the user's word
+    r"\byour call\b|"
+    r"\bdecision (needed|required)\b|"
+    r"\bawaiting (your )?direction\b|"
+    r"\bratif(y|ied|ication)\b|"
+    r"\bsay the word\b|"
+    r"\bgreen-?light\b"
     r")",
     re.IGNORECASE,
 )
 
 BLOCK_REASON = (
-    "You stopped in a report-and-wait shape (matched: {match!r}). "
-    "Permission to start work is implied. Take the next step instead of "
-    "previewing it. Only stop for: (a) genuine completion with evidence, "
-    "(b) a direction fork where two named outcomes are incompatible, "
-    "(c) destructive/external action needing authorization. "
-    "If this stop was one of those, restate it without the permission-"
-    "seeking phrasing."
+    "Stop-gate (matched: {match!r}). Classify this stop BEFORE reacting: "
+    "(a) completion with evidence, (b) direction fork between named "
+    "incompatible outcomes, (c) destructive/external action needing "
+    "authorization. If one applies, RESTATE the stop without the "
+    "permission-seeking phrasing — restated stops are never re-blocked "
+    "(recursion guard). If none applies, take the next step OF THE "
+    "REQUESTED WORK. An agent-authored proposal is not a user instruction: "
+    "if the only remaining step is implementing your own proposal, that is "
+    "a direction fork — state it as one, do not start the work."
 )
 
 
@@ -135,9 +162,54 @@ def read_input() -> dict:
         return {}
 
 
+ROUTE_FILE_MAX_AGE_S = 2 * 3600  # stale advice must not relax later prompts
+
+
+def read_deliverable_kind(session_id: str) -> str:
+    """Read deliverable_kind from the route file classify_prompt.py writes
+    (classify_prompt.py main(): /tmp/claude-route-<session>.json). Missing,
+    stale (>2h), wrong-owner, world-writable, or malformed -> "artifact"
+    (strict: preserves pre-redesign behavior when the channel is absent).
+
+    Trust note: this file can only RELAX the DELIVERABLE pool, never the
+    STALL pool. Same-user tampering is the same trust domain as editing this
+    gate itself; the ownership/mode/freshness checks kill cross-user and
+    stale-file paths (Codex review findings #3/#4, 2026-06-10)."""
+    candidates = [
+        session_id,
+        os.environ.get("CLAUDE_CODE_SESSION_ID"),
+        os.environ.get("CLAUDE_SESSION_ID"),
+    ]
+    for sid in candidates:
+        if not sid:
+            continue
+        sid = re.sub(r"[^A-Za-z0-9_-]", "_", sid)
+        path = Path(f"/tmp/claude-route-{sid}.json")
+        try:
+            st = path.stat()
+            if st.st_uid != os.getuid():
+                continue
+            if st.st_mode & 0o002:  # world-writable
+                continue
+            if time.time() - st.st_mtime > ROUTE_FILE_MAX_AGE_S:
+                continue
+            data = json.loads(path.read_text())
+            kind = data.get("deliverable_kind")
+            if kind in ("advice", "artifact"):
+                return kind
+        except Exception:
+            continue
+    return "artifact"
+
+
 # Strip code/quoted spans so meta-mentions of the regex don't trigger it.
 _CODE_FENCE = re.compile(r"```.*?```", re.DOTALL)
 _INLINE_CODE = re.compile(r"`[^`\n]*`")
+# Single-star italics, max 3 words: meta-mentions of gate phrases are
+# phrase-length (*should I*). Longer italic spans stay scanned so a real
+# stall sentence cannot hide in emphasis (*Should I continue with this?*
+# still matches). Bold (**…**) is never stripped.
+_ITALIC = re.compile(r"(?<!\*)\*[^*\n ]+(?: [^*\n ]+){0,2}\*(?!\*)")
 _DOUBLE_QUOTED = re.compile(r"\"[^\"\n]{1,200}\"")
 _SINGLE_QUOTED = re.compile(r"'[^'\n]{1,200}'")
 _BLOCKQUOTE = re.compile(r"^>.*$", re.MULTILINE)
@@ -151,6 +223,7 @@ def strip_non_prose(text: str) -> str:
     rule and the rule's own phrases appear verbatim)."""
     text = _CODE_FENCE.sub(" ", text)
     text = _INLINE_CODE.sub(" ", text)
+    text = _ITALIC.sub(" ", text)
     text = _DOUBLE_QUOTED.sub(" ", text)
     text = _SINGLE_QUOTED.sub(" ", text)
     text = _BLOCKQUOTE.sub(" ", text)
@@ -227,6 +300,18 @@ STATE_CLAIMS = [
     (re.compile(r"\bcommitted\b", re.I), "git_commit"),
 ]
 
+# Functional-status claims: stronger than "written", weaker than a named
+# test claim. "Operational" with only a syntax check is the failure mode
+# this lexicon exists to catch (2026-06-10). Deliberately conservative:
+# bare "working"/"works"/"live" false-positive on "working on it" /
+# "how it works" — only unambiguous functional-status phrasings listed.
+FUNCTIONAL_CLAIMS = re.compile(
+    r"\b(operational|production[- ]ready|fully (working|functional)|"
+    r"up and running|ready to use|live now|confirmed working|"
+    r"works end[- ]to[- ]end)\b",
+    re.I,
+)
+
 
 def _has_verification(summary: dict, kind: str) -> bool:
     """Did this session run a verification of given kind that passed?"""
@@ -266,6 +351,21 @@ def evidentiary_check(prose: str, cfg: dict, session_id: str | None = None) -> l
                     "rule": "verification_claims",
                     "claim": m.group(0),
                     "missing_evidence": f"no passing {kind} run in this session's case file",
+                })
+
+    # Rule: functional_claims — "operational/working/live" requires at least
+    # one passing execution (any verification kind) recorded this session.
+    if rules.get("functional_claims"):
+        m = FUNCTIONAL_CLAIMS.search(prose)
+        if m:
+            has_exec = any(
+                v.get("exit") == 0 for v in summary.get("verifications", [])
+            )
+            if not has_exec:
+                findings.append({
+                    "rule": "functional_claims",
+                    "claim": m.group(0),
+                    "missing_evidence": "functional-status claim with no passing execution recorded this session",
                 })
 
     # Rule: state_claims (off by default — opt-in)
@@ -362,17 +462,22 @@ def main() -> int:
     prose = strip_non_prose(msg)
 
     # === L1: Lexical (permission-seeking) ===
+    # STALL is absolute — no allow-marker bypass ("Decision needed: should I
+    # continue?" must still block; Codex review finding #2). ALLOW_MARKERS
+    # and the advice deliverable_kind relax only the DELIVERABLE pool.
     if cfg.get("lexical", "block") != "off":
-        if not ALLOW_MARKERS.search(prose):
-            m = PERMISSION_SEEKING.search(prose)
-            if m:
-                if cfg.get("lexical") == "block":
-                    reason = BLOCK_REASON.format(match=m.group(1))
-                    write_audit(session_id, "lexical", [{"rule": "permission_seeking", "match": m.group(1)}], True)
-                    print(json.dumps({"decision": "block", "reason": reason}))
-                    return 0
-                else:  # log
-                    write_audit(session_id, "lexical-log", [{"rule": "permission_seeking", "match": m.group(1)}], False)
+        m = STALL_SEEKING.search(prose)
+        if m is None and not ALLOW_MARKERS.search(prose) \
+                and read_deliverable_kind(session_id) == "artifact":
+            m = DELIVERABLE_SEEKING.search(prose)
+        if m:
+            if cfg.get("lexical") == "block":
+                reason = BLOCK_REASON.format(match=m.group(1))
+                write_audit(session_id, "lexical", [{"rule": "permission_seeking", "match": m.group(1)}], True)
+                print(json.dumps({"decision": "block", "reason": reason}))
+                return 0
+            else:  # log
+                write_audit(session_id, "lexical-log", [{"rule": "permission_seeking", "match": m.group(1)}], False)
 
     # === L2: Evidentiary ===
     ev_mode = cfg.get("evidentiary", "log")

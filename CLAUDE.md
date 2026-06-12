@@ -113,6 +113,12 @@ On autonomous runs: do not stop early, do not declare false completion, do not d
 
 Full rule set (with examples and the Phase β retrospective context) is injected on R3/R4/R5 prompts by `~/.claude/skills/govern/scripts/classify_prompt.py` via UserPromptSubmit additionalContext. That file is the source of truth; this stub exists so the guardrail survives hook failure.
 
+### Anti-overrun patterns (all runs)
+
+The mirror of anti-stop: hook pressure must not expand scope. (1) An agent-authored proposal is not a user instruction — implementing it requires explicit user direction or an answered direction fork; "permission to work is implied" covers the work requested, not adjacent work the agent invented. (2) Hook pressure is not user intent — restate legitimate forks without permission-seeking phrasing; restated stops are never re-blocked. (3) Evidence scales with claims — "written/parses" rests on static checks, "works/operational" requires an execution run.
+
+Full rule set is injected on R3/R4/R5 prompts by `~/.claude/skills/govern/scripts/classify_prompt.py` via UserPromptSubmit additionalContext. That file is the source of truth; this stub exists so the guardrail survives hook failure.
+
 ### Verification
 - After completing an edit batch, run the project's typecheck/tests/lint before moving on. Don't wait to be told.
 - Scope verification to what the current slice changed. Run the full test suite only at task completion, not between slices.

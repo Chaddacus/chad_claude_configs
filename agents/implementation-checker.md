@@ -14,7 +14,7 @@ Purpose: catch stub bodies and placeholder implementations in a worker's diff be
 
 ## When to use
 
-Between worker handoff and reviewer dispatch. Called by the worker's own handoff protocol (see `worker.md`). Also invocable directly when reviewing a suspicious PR.
+Between worker handoff and reviewer dispatch. Dispatched by the hub at the QA stage — the worker performs an inline stub self-scan per `worker.md`; this agent is the independent gate, not a worker-invoked step. Also invocable directly when reviewing a suspicious PR.
 
 ## Inputs
 

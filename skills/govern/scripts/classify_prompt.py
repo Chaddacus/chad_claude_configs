@@ -138,6 +138,48 @@ def is_broad_feature_prompt(text: str) -> bool:
     return has_verb and (has_scope_signal or has_module_boundary_signal)
 
 
+# ---------------------------------------------------------------------------
+# Deliverable kind (advice vs artifact)
+#
+# Read by stop_gate.py via the route file this script writes. On an advisory
+# prompt the correct final turn IS a recommendation, so the stop gate must not
+# treat recommendation-shaped phrasing as a stall. Deterministic predicates
+# only; defaults to "artifact" (strict gate) on any ambiguity.
+# ---------------------------------------------------------------------------
+
+ADVISORY_RE = re.compile(
+    r"\b("
+    r"what (would|do) you think|how would you|would you suggest|suggest(ion)?s?|"
+    r"critique|review|research|compare|evaluate|assess|analy[sz]e|explain|"
+    r"thoughts on|your opinion|opinion on|recommend(ation)?s?|"
+    r"should we|what'?s the best way|how should (we|i)|adversarial(ly)?"
+    r")\b",
+    re.IGNORECASE,
+)
+
+IMPLEMENTATION_IMPERATIVE_RE = re.compile(
+    r"\b("
+    r"implement|fix|build|apply|ship|create|write|add|refactor|make|update|"
+    r"change|install|deploy|run|set ?up|go with|do it|proceed|merge|"
+    r"commit|push|delete|remove|rename|migrate|"
+    r"patch|repair|debug|resolve|correct|rewrite|optimi[sz]e|configure|"
+    r"integrate|upgrade|edit"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def deliverable_kind(prompt: str) -> str:
+    """Return "advice" or "artifact". Advice requires an advisory signal AND
+    the absence of any implementation imperative; everything else is artifact
+    so the stop gate stays strict by default."""
+    if not prompt or not prompt.strip():
+        return "artifact"
+    if ADVISORY_RE.search(prompt) and not IMPLEMENTATION_IMPERATIVE_RE.search(prompt):
+        return "advice"
+    return "artifact"
+
+
 def classify_prompt(prompt: str) -> dict:
     """Fast heuristic classification of a user prompt."""
     if not prompt or not prompt.strip():
@@ -295,6 +337,15 @@ These failure modes caused a "fully autonomous" run to stop at 7/10 slices. Disa
 When any of these patterns starts to form ("this needs a browser check so I'll defer", "the corpus isn't in /foo so it must not exist locally", "B is blocked on A so I'll stop"), name the pattern, identify which anti-pattern applies, and take the next step anyway."""
 
 
+ANTI_OVERRUN_PATTERNS = """## Anti-overrun patterns (all runs)
+
+The mirror image of anti-stop. On 2026-06-10 an advisory request became an unratified implementation sprint under stop-gate pressure. Disallowed:
+
+1. **An agent-authored proposal is not a user instruction.** Implementing your own proposal requires explicit user direction or a filed fork record the user has answered. "Permission to work is implied" covers the work REQUESTED, not adjacent work you invented.
+2. **Hook pressure is not user intent.** When a stop-gate block conflicts with the user's request scope, restate the stop as a direction fork without permission-seeking phrasing — restated stops are never re-blocked (recursion guard in stop_gate.py).
+3. **Speed does not waive grounding.** Evidence scales with claims: "written/parses" rests on static checks; "works/operational" requires an execution run. A plan naming a config surface must cite the consumer file:line before shipping."""
+
+
 R3_R4_GOVERNANCE_GATES = """## R3/R4 governed-lanes gates
 
 - Use the governed path: run omni-mem retrieval, use planning-gate skill, satisfy prompt-contract requirements, run validation before closeout.
@@ -359,7 +410,7 @@ def route_policy_block(result: dict) -> str:
     route = result.get("route_hint", "R1")
     if route in ("R1", "R2"):
         return ""
-    return ANTI_STOP_PATTERNS + "\n\n" + R3_R4_GOVERNANCE_GATES
+    return ANTI_STOP_PATTERNS + "\n\n" + ANTI_OVERRUN_PATTERNS + "\n\n" + R3_R4_GOVERNANCE_GATES
 
 
 def main():
@@ -371,6 +422,7 @@ def main():
         prompt = sys.stdin.read()
 
     result = classify_prompt(prompt)
+    result["deliverable_kind"] = deliverable_kind(prompt)
 
     # Write route to session-scoped temp file for downstream hook profile gating
     route_file = f"/tmp/claude-route-{os.environ.get('CLAUDE_CODE_SESSION_ID') or os.environ.get('CLAUDE_SESSION_ID') or 'default'}.json"

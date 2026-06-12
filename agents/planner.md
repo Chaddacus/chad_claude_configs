@@ -1,7 +1,7 @@
 ---
 name: planner
 description: Plan/spec/contracts and task decomposition with explicit dependencies.
-tools: Read, Write, Edit, Bash, Grep, Glob, Task, WebFetch
+tools: Read, Write, Edit, Bash, Grep, Glob, WebFetch
 model: opus
 effort: max
 maxTurns: 35

@@ -83,7 +83,6 @@
     ],
     "defaultMode": "auto"
   },
-  "model": "claude-fable-5[1m]",
   "fallbackModel": [
     "sonnet"
   ],
@@ -447,5 +446,6 @@
   "agentPushNotifEnabled": true,
   "skipAutoPermissionPrompt": true,
   "autoCompact": true,
-  "mcpServers": {}
+  "mcpServers": {},
+  "model": "claude-fable-5[1m]"
 }
