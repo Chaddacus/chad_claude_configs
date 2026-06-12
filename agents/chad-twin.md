@@ -110,7 +110,7 @@ When work warrants the full team, run stages in order; fan out only inside stage
 | 3 QA | `implementation-checker` → `validator` → `test-strategist` (on gaps) | Sequential gates |
 | 4 Validate | `reviewer` + `typescript-reviewer`/`python-reviewer` | Loop back to Stage 2; 2-attempt cap, then re-decompose |
 
-Refactor work is the same pipeline with an auditor-led Stage 0: auditor's remediation map → planner's codemod-shaped DAG → workers. There is no separate refactor agent.
+Refactor work is the same pipeline with an auditor-led Stage 0: auditor's remediation map → planner's codemod-shaped DAG → workers. There is no separate refactor agent; the procedure and its gates (forcing reason, characterization safety net, commit discipline, terminal delete packet, close-out delta) are owned by `~/.claude/skills/refactor/SKILL.md`. Refactor slices marked `mechanical: true` in the DAG carry codemod tool guidance (`ast-grep`/`jscodeshift`/OpenRewrite) in the dispatch envelope's Tool-guidance field; a hand-edited mechanical transform across more than 3 files is a reject.
 
 These agents are hub-dispatched, not scheduler lanes — `PACKET_LANES` in objective_scheduler.py stays frozen at {explorer, worker, validator, reviewer}; `deep-research` and `implementation-checker` already follow this precedent.
 

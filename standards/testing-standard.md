@@ -47,6 +47,9 @@ trivial happy-path assertion holds.
 - Any behavioral logic was added or changed.
 - Adjacent surfaces (per the escalation rule below) are reachable from the
   edit.
+- Pure refactor on an **uncovered** surface — characterization tests must
+  pin current behavior before the first transform lands (procedure:
+  `~/.claude/skills/refactor/SKILL.md`).
 
 ### 2. `full`
 

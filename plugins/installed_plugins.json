@@ -102,11 +102,11 @@
     "frontend-design@claude-plugins-official": [
       {
         "scope": "user",
-        "installPath": "/Users/chadsimon/.claude/plugins/cache/claude-plugins-official/frontend-design/cdaf3d9d92bc",
-        "version": "cdaf3d9d92bc",
+        "installPath": "/Users/chadsimon/.claude/plugins/cache/claude-plugins-official/frontend-design/f0b090fd256f",
+        "version": "f0b090fd256f",
         "installedAt": "2026-04-30T19:35:55.380Z",
-        "lastUpdated": "2026-06-07T04:10:03.143Z",
-        "gitCommitSha": "cdaf3d9d92bcb898f6f04adc74ef5f4d5594a772"
+        "lastUpdated": "2026-06-11T23:36:15.397Z",
+        "gitCommitSha": "f0b090fd256f30d672e83e24bdf08dd6574f287e"
       }
     ]
   }
