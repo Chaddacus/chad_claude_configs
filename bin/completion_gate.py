@@ -10,12 +10,15 @@ Usage:
     python3 completion_gate.py --event stop
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import os
 import subprocess
 import sys
 import time
+from datetime import datetime
 
 sys.path.insert(0, os.path.join(os.environ.get("CLAUDE_HOME", os.path.expanduser("~/.claude")), "bin"))
 from hook_profile import should_run
@@ -208,6 +211,59 @@ def run_command(cmd: str, project_root: str, timeout: int = 25) -> dict:
         }
 
 
+def _subagent_start_floor(hook_input: dict) -> float | None:
+    """Epoch time this subagent began, from its OWN transcript's first entry.
+
+    A subagent inherits the parent's session_id, so the ledger it resolves to is
+    the PARENT's — full of the parent session's unverified edits. Without a floor,
+    the task-completed gate attributes the parent's code edits to EVERY subagent
+    and injects a verification reminder it cannot act on, which re-prompts the
+    subagent into a stop loop (the 2026-06-10 fleet-audit incident; the same guard
+    already lives in subagent_verify.py). Returns None when unresolvable — the
+    caller must then suppress (fail open: never nag a subagent about edits it
+    cannot be shown to have made)."""
+    tp = hook_input.get("agent_transcript_path") or hook_input.get("transcript_path")
+    if not tp:
+        return None
+    p = os.path.expanduser(str(tp))
+    try:
+        with open(p, "r") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    ts = json.loads(line).get("timestamp")
+                except (json.JSONDecodeError, AttributeError):
+                    continue
+                if ts:
+                    return datetime.fromisoformat(str(ts).replace("Z", "+00:00")).timestamp()
+        return os.path.getctime(p)  # transcript exists but no parseable ts
+    except (OSError, ValueError):
+        return None
+
+
+def _has_own_code_edits(ledger: dict, floor: float) -> bool:
+    """True iff the ledger has a code edit at/after the subagent's start floor."""
+    for edit in ledger.get("edits", []):
+        if edit.get("timestamp", 0) >= floor:
+            ext = os.path.splitext(edit.get("file", ""))[1].lower()
+            if ext in CODE_EXTENSIONS:
+                return True
+    return False
+
+
+def _task_mark_path(sid: str, agent_key: str) -> str:
+    """Per-(session, subagent-task) idempotency marker. Once the task-completed
+    gate has surfaced its verdict for a task it must not surface it again, or the
+    injected context re-prompts the subagent forever."""
+    base = os.environ.get("CLAUDE_HOME", os.path.expanduser("~/.claude"))
+    d = os.path.join(base, "state", "completion-gate-task-marks")
+    os.makedirs(d, exist_ok=True)
+    safe = "".join(c if c.isalnum() else "_" for c in f"{sid}-{agent_key}")[:180]
+    return os.path.join(d, safe + ".done")
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--event", choices=["task-completed", "stop"], required=True)
@@ -226,6 +282,33 @@ def main():
     LEDGER_PATH = str(verify_ledger_path(sid))
 
     ledger = load_ledger()
+
+    # Subagent task completion: scope to THIS subagent's OWN edits and fire at
+    # most once. A subagent inherits the parent's session_id, so `ledger` is the
+    # parent's — full of the parent's unverified edits. Without these two guards
+    # the gate runs project verification against the parent's edits and injects
+    # the result into every read-only subagent (auditor/reviewer/explorer),
+    # re-prompting it into the "Same list / Holding / No change" stop loop. The
+    # parent's own `--event stop` pass (below, unchanged) remains the real gate.
+    if args.event == "task-completed":
+        floor = _subagent_start_floor(hook_input)
+        if floor is None:
+            sys.exit(0)  # cannot attribute edits to this subagent -> never nag
+        agent_key = str(
+            hook_input.get("agent_id")
+            or os.path.basename(str(hook_input.get("agent_transcript_path")
+                                    or hook_input.get("transcript_path") or "task"))
+        )
+        mark = _task_mark_path(sid, agent_key)
+        if os.path.exists(mark):
+            sys.exit(0)  # already gated this task -> idempotent, cannot loop
+        try:
+            with open(mark, "w"):
+                pass  # claim the mark up front so a slow/failed verify can't re-fire
+        except OSError:
+            pass
+        if not _has_own_code_edits(ledger, floor):
+            sys.exit(0)  # read-only subagent / no code edits of its own -> nothing to verify
 
     # No code edits at all — nothing to verify
     if not has_code_edits(ledger):
