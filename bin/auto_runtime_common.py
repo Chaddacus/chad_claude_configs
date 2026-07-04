@@ -2410,6 +2410,13 @@ def build_closure(
         "total_slices": total,
         "closure_blockers": closure_blockers,
         "governance_validated": governance is not None,
+        # build_closure is the auto_runtime (cycle/refresh/replay) closure path;
+        # the route_manifest postflight gate chain runs only under claude_run /
+        # ralph_done_loop, never here. Surface that honestly so a reader does not
+        # mistake governance_validated (= a governance object was attached) for
+        # "the R3/R4 governed postflight gates ran and passed".
+        "postflight_required": route_id in ("R3", "R4"),
+        "postflight_executed": False,
         "dispatch_exhausted": dispatch_exhausted,
         "updated_at": now_iso(),
     }
@@ -3315,6 +3322,79 @@ def _worker_runtime_invocation(runtime: str) -> dict[str, Any]:
 # Node state updates
 # ---------------------------------------------------------------------------
 
+def add_slice_node(
+    track_id: str,
+    title: str,
+    *,
+    node_id: str | None = None,
+    description: str | None = None,
+    dependencies: list[str] | None = None,
+) -> dict[str, Any]:
+    """Add a slice node to an existing track's graph.
+
+    Why: init builds a single auto slice ("slice-1"), so multi-slice plans
+    had nowhere to attach per-slice evidence — everything landed in one blob
+    (observed on track db6a3338d2ab, 2026-07-04). This lets the operator
+    grow the graph to match the plan's real slice decomposition.
+
+    Node id defaults to the next free "slice-N". Dependencies default to the
+    plan node when present (mirrors build_initial_graph's shape)."""
+    td = track_dir(track_id)
+    state = _load_json(td / "objective.state.json")
+    graph = state["views"]["graph"]
+    nodes = graph["nodes"]
+
+    if node_id is None:
+        # Next free slice-N, scanning existing ids so we never collide.
+        ns = [int(m.group(1)) for nid in nodes
+              if (m := re.match(r"slice-(\d+)$", nid))]
+        node_id = f"slice-{(max(ns) + 1) if ns else 1}"
+    if node_id in nodes:
+        raise ValueError(f"Node {node_id} already exists in graph")
+
+    if dependencies is None:
+        dependencies = ["plan-1"] if "plan-1" in nodes else [graph.get("root", "objective-1")]
+    missing = [d for d in dependencies if d not in nodes]
+    if missing:
+        raise ValueError(f"Unknown dependency node(s): {missing}")
+
+    owned_scope = nodes.get(graph.get("root", ""), {}).get("owned_scope", [state.get("cwd", "")])
+    nodes[node_id] = {
+        "id": node_id,
+        "kind": "slice",
+        "title": title[:120],
+        "description": description or title,
+        "goal": description or title,
+        "state": "ready",
+        "dependencies": dependencies,
+        "owned_scope": owned_scope,
+        "blockers": [],
+        "evidence_refs": [],
+        "acceptance_source": None,
+        "metrics": {"retry_count": 0, "escalation_count": 0},
+        "planning_source": "operator_add_node",
+        "slice_contract": {
+            "objective": title,
+            "acceptance_criteria": [],
+            "verification_commands": [],
+        },
+    }
+    graph.setdefault("edges", []).extend(
+        {"from": node_id, "to": dep, "type": "child_of"} for dep in dependencies
+    )
+
+    state["views"]["graph"] = graph
+    _save_json(td / "objective.state.json", state)
+    rebuild_materialized_views(track_id)
+    _append_event(track_id, {
+        "event": "node_added",
+        "node_id": node_id,
+        "title": title[:120],
+        "dependencies": dependencies,
+    })
+    return {"node_id": node_id, "state": "ready", "dependencies": dependencies}
+
+
 def update_node_state(
     track_id: str,
     node_id: str,
@@ -3333,7 +3413,10 @@ def update_node_state(
     graph = state["views"]["graph"]
 
     if node_id not in graph["nodes"]:
-        raise ValueError(f"Node {node_id} not found in graph")
+        raise ValueError(
+            f"Node {node_id} not found in graph. "
+            f"Valid node ids: {sorted(graph['nodes'])}"
+        )
 
     node = graph["nodes"][node_id]
     old_state = node["state"]

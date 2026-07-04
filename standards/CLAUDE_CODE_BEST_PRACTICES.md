@@ -276,7 +276,7 @@ Filled 2026-07-04 by the runtime audit (`/Users/chadsimon/code/audits/claude-run
 
 | # | Best-practice finding | Source section | Our runtime: conforms / deviates / N/A |
 |---|---|---|---|
-| 1 | CLAUDE.md kept under ~200 lines per file; bloat pruned ruthlessly | §1 | DEVIATES (mild): global 258 lines post-amendments; project 36, chad-twin 193. Trim candidate: move Refinements prose to a standard |
+| 1 | CLAUDE.md kept under ~200 lines per file; bloat pruned ruthlessly | §1 | DEVIATES (mild): global 220 lines after 2026-07-05 trim (was 258; Refinements rationale → standards/REFINEMENTS.md, rbw usage → standards/SECRETS_RBW.md); project 36, chad-twin 195. Further trim would compress verifier-scoped gate bullets — deliberate stop |
 | 2 | Domain/procedural knowledge moved to skills instead of CLAUDE.md | §1 | Conforms: 32 skills + 19 standards docs; constitution keeps stubs pointing at owners |
 | 3 | Path-scoped project rules directory used for large/monorepo instruction sets | §1 | Conforms as of 2026-07-04: `/Users/chadsimon/code/CLAUDE.md` created (was the audit's F2 gap) |
 | 4 | Auto memory reviewed/audited periodically via `/memory`, not left unchecked | §1 | Conforms: curated MEMORY.md indexes (global + agent-memory) + omni-mem two-tier with lifecycle gates |

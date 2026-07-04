@@ -128,10 +128,22 @@ while [[ $# -gt 0 ]]; do
       usage
       exit 0
       ;;
-    *)
+    -*)
       echo "ERROR: unknown option: $1" >&2
       usage >&2
       exit 1
+      ;;
+    *)
+      # Ergonomics: a bare positional is the task text (agents habitually call
+      # `notify_done.sh "message"`); equivalent to --task. First one wins.
+      if [[ -z "$TASK" ]]; then
+        TASK="$1"
+        shift
+      else
+        echo "ERROR: unexpected extra argument: $1 (task already set)" >&2
+        usage >&2
+        exit 1
+      fi
       ;;
   esac
 done

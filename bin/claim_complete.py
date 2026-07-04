@@ -32,7 +32,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.join(os.environ.get("CLAUDE_HOME", os.path.expanduser("~/.claude")), "bin"))
-from case_file import write_completion, read_summary, resolve_session_id
+from case_file import write_completion, read_merged_summary, resolve_session_id
 
 ALLOWED_KINDS = {"completion", "blocked", "fork"}
 
@@ -96,7 +96,9 @@ def main() -> int:
         return 1
 
     sid = resolve_session_id()
-    summary = read_summary(sid)
+    # Merged view (live turn + rotated turns/): completion records describe
+    # task-level work, which spans the per-turn rotation done by case_rotator.
+    summary = read_merged_summary(sid)
 
     unmatched = check_attribution(record, summary)
     if unmatched:

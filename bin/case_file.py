@@ -189,9 +189,11 @@ def read_events(session_id: str | None = None) -> list[dict]:
     return events
 
 
-def rebuild_summary(session_id: str | None = None) -> dict:
-    """Walk events.jsonl and materialize a rollup."""
-    events = read_events(session_id)
+def _rollup(events: list[dict]) -> dict:
+    """Materialize a summary rollup from a list of tool events.
+
+    Shared core of rebuild_summary (live ledger) and read_merged_summary
+    (live + rotated turns/): one rollup implementation, two scopes."""
     files_touched: set[str] = set()
     commands_run: list[dict] = []
     verifications: list[dict] = []
@@ -228,7 +230,7 @@ def rebuild_summary(session_id: str | None = None) -> dict:
             elif kind in ("git_commit", "git_push", "pr_merge", "pr_create"):
                 state_mutations.append(entry)
 
-    summary = {
+    return {
         "files_touched": sorted(files_touched),
         "commands_run": commands_run,
         "verifications": verifications,
@@ -238,6 +240,11 @@ def rebuild_summary(session_id: str | None = None) -> dict:
         "last_passing_verify_at": last_passing_verify_at,
         "event_count": len(events),
     }
+
+
+def rebuild_summary(session_id: str | None = None) -> dict:
+    """Walk the live events.jsonl and materialize + persist a rollup."""
+    summary = _rollup(read_events(session_id))
     p = summary_path(session_id)
     try:
         with p.open("w", encoding="utf-8") as fh:
@@ -245,6 +252,39 @@ def rebuild_summary(session_id: str | None = None) -> dict:
     except IOError:
         pass
     return summary
+
+
+def read_merged_summary(session_id: str | None = None) -> dict:
+    """Session-wide rollup: live ledger UNION all turns archived by
+    case_rotator.py under turns/{N}/.
+
+    Why: case_rotator rotates the live ledger on every user prompt so the
+    stop gate sees per-turn scope, but completion records describe TASK-level
+    work spanning turns. Validating task claims against only the live (final
+    turn) ledger falsely rejects legitimate multi-turn completions (observed
+    2026-07-04). Scope stays per-session — the 2026-06-09 shared-key gaming
+    hole is not reopened."""
+    events = list(read_events(session_id))
+    turns_dir = case_dir(session_id) / "turns"
+    if turns_dir.is_dir():
+        for turn in sorted(turns_dir.iterdir()):
+            ev_file = turn / "events.jsonl"
+            if not ev_file.is_file():
+                continue
+            try:
+                with ev_file.open("r", encoding="utf-8") as fh:
+                    for line in fh:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            events.append(json.loads(line))
+                        except json.JSONDecodeError:
+                            continue
+            except IOError:
+                continue
+    events.sort(key=lambda e: e.get("ts", 0))
+    return _rollup(events)
 
 
 def read_summary(session_id: str | None = None) -> dict:
