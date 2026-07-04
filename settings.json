@@ -9,7 +9,7 @@
     "OTEL_EXPORTER_OTLP_PROTOCOL": "grpc",
     "OTEL_EXPORTER_OTLP_ENDPOINT": "http://127.0.0.1:4317",
     "OTEL_EXPORTER_OTLP_INSECURE": "true",
-    "OTEL_LOG_USER_PROMPTS": "1",
+    "OTEL_LOG_USER_PROMPTS": "0",
     "OTEL_RESOURCE_ATTRIBUTES": "deployment.environment=local,collector.name=logging_and_metrics,agent.family=claude"
   },
   "includeCoAuthoredBy": false,
@@ -79,7 +79,20 @@
       "Read(~/.aws/config)",
       "Bash(cat .env*)",
       "Bash(cat ~/.ssh/id_*)",
-      "Bash(cat ~/.aws/credentials)"
+      "Bash(cat ~/.aws/credentials)",
+      "Read(~/.claude.json)",
+      "Read(~/.claude/kickstarter-tokens.json)",
+      "Read(~/.kube/config)",
+      "Read(~/.npmrc)",
+      "Read(**/.pypirc)",
+      "Read(**/*.pem)",
+      "Read(**/*.key)",
+      "Read(~/.config/op/**)",
+      "Bash(cat ~/.claude.json)",
+      "Bash(cat ~/.claude/kickstarter-tokens.json)"
+    ],
+    "ask": [
+      "mcp__ks-rapture-gateway"
     ],
     "defaultMode": "auto"
   },
@@ -439,13 +452,14 @@
   },
   "feedbackSurveyRate": 0,
   "alwaysThinkingEnabled": true,
-  "effortLevel": "xhigh",
+  "effortLevel": "medium",
   "agent": "chad-twin",
+  "tui": "fullscreen",
   "skipDangerousModePermissionPrompt": true,
   "remoteControlAtStartup": true,
   "agentPushNotifEnabled": true,
   "skipAutoPermissionPrompt": true,
-  "autoCompact": true,
+  "autoCompactEnabled": true,
   "mcpServers": {},
   "model": "claude-fable-5[1m]"
 }

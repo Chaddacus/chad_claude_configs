@@ -24,6 +24,7 @@ behavioral; lookup material lives here). This file is pointer-only — no rules.
 - Prompt contracts: `/Users/chadsimon/.claude/skills/memory-adaptation/references/PROMPT_CONTRACTS.md`
 - Planning-gate operator workflow: `/Users/chadsimon/.claude/skills/planning-gate/SKILL.md`
 - Policy ownership map: `/Users/chadsimon/.claude/standards/POLICY_OWNERSHIP.md`
+- Overengineering guardrails / dispatch control plane: `/Users/chadsimon/.claude/state/control_plane.json` (referenced by `route_manifest.json` `control_plane_ref`; watched by `policy_edit_gate.py`)
 - Session identity resolution: `case_file.resolve_session_id` (`~/.claude/bin/case_file.py`)
 
 ## Standards and runbooks
@@ -35,6 +36,15 @@ behavioral; lookup material lives here). This file is pointer-only — no rules.
 - Stop-gate L2 completion records: `/Users/chadsimon/.claude/standards/STOP_GATE_L2.md`
 - Auto runtime & governance mechanics: `/Users/chadsimon/.claude/standards/AUTO_RUNTIME.md`
 - Enterprise maturity rubric fallback: `/Users/chadsimon/.claude/standards/enterprise-maturity-rubric-generic.md`
+- Testing baseline (breadths, escalation, gate mechanics): `/Users/chadsimon/.claude/standards/testing-standard.md`
+- Runtime process-architecture invariants: `/Users/chadsimon/.claude/standards/CHAD_RUNTIME_INVARIANTS.md`
+- Replan decision protocol (evidence-cited replans): `/Users/chadsimon/.claude/standards/REPLAN_DECISION_PROTOCOL.md`
+- Enterprise design rubric (UI scoring baseline): `/Users/chadsimon/.claude/standards/enterprise-design-rubric.md`
+- maxTurns telemetry runbook: `/Users/chadsimon/.claude/standards/maxturns-telemetry-runbook.md`
+- MCP structured-error migration guide: `/Users/chadsimon/.claude/standards/mcp-error-migration.md`
+- Obsessive loop orchestrator/worker workflow: `/Users/chadsimon/.claude/standards/obsessive-loop-orchestrator.md`
+- Reviewer bash guard (deferred-work stub): `/Users/chadsimon/.claude/standards/reviewer-bash-guard.md`
+- Subagent context passing (parent-prompt pattern): `/Users/chadsimon/.claude/standards/subagent-context-passing.md`
 
 ## Memory architecture (two-tier)
 

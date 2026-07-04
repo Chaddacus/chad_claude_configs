@@ -32,7 +32,10 @@ Policy: `~/.claude/CLAUDE.md`. Config: `~/.claude/settings.json`. Routing contra
 - Prefer PRD/story/task-file shaped planning artifacts for broad work, but treat them as working agreements, not source of truth after the code changes.
 - Keep the end goal in view. Do not stop at partial analysis when safe momentum remains.
 - Anti-overengineering is a gate, not an aspiration. Do not introduce a new service, persistence layer, schema family, or orchestration engine unless you can prove an existing primitive cannot satisfy the requirement. If you cannot prove it in one sentence, it fails.
-- If a proposed change exceeds `500 LOC` or `3` files, stop and justify before implementing. Unjustified scope growth is a defect.
+- If a proposed change exceeds `500 LOC` or `3` files, stop and justify before implementing. Unjustified scope growth is a defect. Slice-local doc updates (comments in authored code, the touched directory's README) do not count against this gate.
+- Code must be hard fought, not shotgunned. If you cannot say why each changed line is necessary, it is not necessary.
+- Correct beats plausible. The right change is the smallest one that truly resolves the cause — a 1-line update beats a thousand-line fix that also works.
+- Comment what you author: every file you create opens with a purpose comment; every function you write or materially change carries a comment stating what it does and why. Never retro-comment code you didn't touch.
 - Use `rg`/`rg --files` for search by default.
 - For non-trivial coding work, use omni-mem retrieval before implementation and save durable lessons afterward.
 - Treat `settings.json` and `route_manifest.json` as the canonical runtime surfaces.
@@ -86,6 +89,11 @@ Refines: "Reuse-first" + "Prefer discovering facts from the repo."
 
 Before adding code to a file, read: (a) the target file's existing exports and top-of-file imports, (b) up to 3 direct callers or callees found via `rg`, (c) up to 2 likely shared utility modules under the project's `utils/`, `lib/`, or equivalent. If this bounded pass does not resolve the pattern, document the unresolved assumption and continue. **Exception:** when scope is uncertain and `## Autonomous Behavior > ### Exploration` directs the use of an Explore subagent, that governance gate authorizes deeper exploration and these caps do not apply during that subagent's run.
 
+### Follow your own recommendation
+Refines: "Default to action over asking" + Completion's "Don't ask 'should I proceed?'" + Anti-overrun pattern #1.
+
+When you surface a fork between approaches for work the user has already set in motion **and you hold a clear recommendation**, take the recommended path and continue — state the choice, the one-line why, and that it is reversible. Do not bounce a "which one — A or B?" question back when you already have the answer; a recommendation you are willing to defend is a decision, so present it as the path taken, not a menu. Halt for the choice only when (a) you genuinely have no recommendation between the options, (b) an option is irreversible or crosses an authority/destructive boundary, or (c) the fork would expand scope beyond what the user set in motion — that last case stays an anti-overrun fork: name it, do not run it. This clause authorizes choosing the *method* for requested work; it does not authorize inventing adjacent work.
+
 ## Autonomous Behavior
 
 ### Exploration
@@ -96,6 +104,8 @@ Before adding code to a file, read: (a) the target file's existing exports and t
 - When a task arrives, GO. Do not ask "should I start?", "is this the right approach?", or "should I proceed?". Permission to work is implied by the user sending the task.
 - On non-trivial work, initialize an auto-runtime track: `python3 ~/.claude/bin/auto_runtime.py init --task "<objective>" --cwd "$PWD"`. Save the `track_id`.
 - Decompose the task into slices. Each slice: implement -> test the changed code -> fix failures -> next slice.
+- When a slice materially changes a directory's behavior, update that directory's README/summary in the same slice — what it does now, how it works, key references. Part of the slice's definition of done, not bonus scope. No separate doc passes; no summaries for directories you didn't touch.
+- On autonomous runs, commit at every green slice boundary on a `codex/` work branch. Small revertable commits are the backup and the audit trail. Committing is not a stop and not a report — keep moving. Push and PR only per Safety And Git Rules.
 - Prefer vertical slices/tracer bullets that cross the minimum necessary layers and produce integrated feedback before expanding breadth.
 - Keep module boundaries explicit. Design simple interfaces around deep modules, then delegate implementation behind those testable boundaries.
 - Revalidate old PRDs, plans, and issue text against the current code before treating them as authoritative.
@@ -103,7 +113,7 @@ Before adding code to a file, read: (a) the target file's existing exports and t
 - Update slice state via `auto_runtime.py update-node` with evidence refs on completion.
 - **Do not stop between slices. Do not report progress. Do not ask for permission to continue.** The only reasons to stop are: (1) genuine ambiguity about direction, (2) external dependency you cannot resolve, (3) authority boundary (destructive/external action). Everything else — keep going.
 - When a task decomposes into genuinely parallel, low-conflict parts, use subagents via the Agent tool. Do not parallelize when changes touch shared state or the same files.
-- Dispatch budgets are enforced (owner: `~/.claude/bin/auto_runtime_common.py` `DISPATCH_CYCLE_MAX_BY_ROUTE`): R1=6, R2=12, R3=24, R4=40 cycles. Route promotion escalates automatically on repeated failures.
+- Dispatch budgets are enforced (owner: `~/.claude/bin/auto_runtime_common.py` `DISPATCH_CYCLE_MAX_BY_ROUTE`): R1=6, R2=12, R3=24, R4=40, R5=4 cycles. Route promotion escalates automatically on repeated failures.
 - At ~70% context window usage, auto-compact fires (enabled in settings.json). The PreCompact hook persists memory to omni-mem before compaction. After compaction, continue working — do not stop to report.
 - If tests fail, fix them. If a file is missing, create it. If a dependency is needed, install it. If the approach fails 3x, try a different approach. Do not stop to ask.
 
@@ -111,7 +121,7 @@ Before adding code to a file, read: (a) the target file's existing exports and t
 
 On autonomous runs: do not stop early, do not declare false completion, do not defer shippable code because "verification will eventually need a human." The Stop hook's `AUTO-SAVE` is a memory checkpoint, not an exit signal — continue the loop. Only legitimate exits are genuine ambiguity, unresolvable external dependency, or authority boundary.
 
-Full rule set (with examples and the Phase β retrospective context) is injected on R3/R4/R5 prompts by `~/.claude/skills/govern/scripts/classify_prompt.py` via UserPromptSubmit additionalContext. That file is the source of truth; this stub exists so the guardrail survives hook failure.
+Full rule set (with examples and the Phase β retrospective context) is injected on R3/R4/R5 prompts by `~/.claude/skills/govern/scripts/classify_prompt.py` via UserPromptSubmit additionalContext. That file is the source of truth; this stub exists so the guardrail survives hook failure. On R5 the gate set is a hold-until-reclassified bridge; the disambiguated work then runs the gates in earnest as R3/R4.
 
 ### Anti-overrun patterns (all runs)
 
@@ -124,7 +134,7 @@ Full rule set is injected on R3/R4/R5 prompts by `~/.claude/skills/govern/script
 - Scope verification to what the current slice changed. Run the full test suite only at task completion, not between slices.
 - If tests fail after your changes, fix them immediately. Don't report failure and wait.
 - Distinguish pre-existing failures (not your problem) from introduced failures (fix before continuing).
-- Do not use hedging language ("should work," "probably passes," "seems correct") when reporting verification outcomes. State what was run, what the output was, and whether it passed or failed. If not yet verified, say so explicitly.
+- Do not use hedging language ("should work," "probably passes," "seems correct") when reporting verification outcomes. State the exact commands run and their output — pass or fail. Verification that cannot be reproduced from your report is not evidence. If not yet verified, say so explicitly.
 
 ### Completion
 - State what evidence supports "done" — test results, typecheck output, or explicit verification commands you ran.
@@ -154,6 +164,14 @@ Before stopping on non-trivial work, file a structured completion record (`compl
 - Do not amend commits unless explicitly asked.
 - Prefer non-interactive git commands.
 - Respect dirty worktrees. Do not revert unrelated user changes.
+
+## Secret Access (Bitwarden via rbw)
+
+Chad's secrets live in his Bitwarden vault, reachable from any shell via `rbw` (installed + configured 2026-06-21: account `chad3124@gmail.com`, official cloud, 30-day unlock timeout, `pinentry-mac` GUI prompt). This is the canonical way to obtain credentials — never ask Chad to paste a secret into chat or write it to a plaintext file.
+
+- Read a secret: `rbw get "<item name>"` (returns the item's password field, e.g. tokens/keys); `rbw get --full "<item name>"` for notes; `rbw list` enumerates item names.
+- NEVER print a secret value. Interpolate inline, e.g. `curl -H "Authorization: Bot $(rbw get 'Treasure Wake Discord Bot')"`.
+- If `rbw get` fails with the agent locked / "agent not running" (e.g. after a reboot), STOP and ask Chad to run `rbw unlock` once — unlocking needs his master password via the GUI prompt and cannot be automated from a non-interactive shell. Login/unlock are Chad's interactive acts; reading unlocked secrets is yours.
 
 ## Communication And Output
 
