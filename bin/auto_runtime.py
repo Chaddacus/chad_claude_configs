@@ -95,14 +95,37 @@ def cmd_scan(args: argparse.Namespace) -> None:
 
 def cmd_update_node(args: argparse.Namespace) -> None:
     evidence = args.evidence.split(",") if args.evidence else None
-    with rt.TrackLock(args.track_id):
-        result = rt.update_node_state(
-            args.track_id,
-            args.node_id,
-            args.state,
-            evidence_refs=evidence,
-            acceptance_source=args.acceptance_source,
-        )
+    try:
+        with rt.TrackLock(args.track_id):
+            result = rt.update_node_state(
+                args.track_id,
+                args.node_id,
+                args.state,
+                evidence_refs=evidence,
+                acceptance_source=args.acceptance_source,
+            )
+    except (ValueError, KeyError, FileNotFoundError) as e:
+        # Operator-facing CLI: bad node/track ids get a clean error, not a traceback.
+        print(f"update-node: {e}", file=sys.stderr)
+        raise SystemExit(2)
+    json.dump(result, sys.stdout, indent=2, default=str)
+    print()
+
+
+def cmd_add_node(args: argparse.Namespace) -> None:
+    deps = args.dependencies.split(",") if args.dependencies else None
+    try:
+        with rt.TrackLock(args.track_id):
+            result = rt.add_slice_node(
+                args.track_id,
+                args.title,
+                node_id=args.node_id,
+                description=args.description,
+                dependencies=deps,
+            )
+    except (ValueError, KeyError, FileNotFoundError) as e:
+        print(f"add-node: {e}", file=sys.stderr)
+        raise SystemExit(2)
     json.dump(result, sys.stdout, indent=2, default=str)
     print()
 
@@ -233,6 +256,15 @@ def main() -> None:
     p.add_argument("--evidence")
     p.add_argument("--acceptance-source")
     p.set_defaults(func=cmd_update_node)
+
+    # add-node — grow the graph to match a multi-slice plan
+    p = sub.add_parser("add-node", help="Add a slice node to a track's graph")
+    p.add_argument("--track-id", required=True)
+    p.add_argument("--title", required=True)
+    p.add_argument("--node-id", help="Explicit id (default: next free slice-N)")
+    p.add_argument("--description")
+    p.add_argument("--dependencies", help="Comma-separated node ids (default: plan-1)")
+    p.set_defaults(func=cmd_add_node)
 
     # effort-for-slice
     p = sub.add_parser("effort-for-slice", help="Resolve effort for a slice (accounts for retry escalation)")

@@ -34,6 +34,8 @@ Most rules live in `~/.claude/CLAUDE.md`. The rules below are the ones that are 
 ### Architecture
 - When choosing between patterns, pick the one that's simplest to understand, test, and delete.
 - MCP servers for tool boundaries, microservices for deployment boundaries — but only when the boundary is real.
+- API/MCP first: a capability worth building is worth exposing behind the repo's existing API or MCP surface, not as a one-off script or a direct DB poke. Extend the existing surface by default; a brand-new server still has to pass the anti-overengineering gate.
+- Log at the boundaries of code you write: operation start/finish, every real error path with context, every external call with its outcome. Structured, via the repo's existing logger. No new observability infra per repo.
 - Prefer explicit over clever. Prefer boring over novel.
 - Build safety into the system (circuit breakers, retries, kill switches), not around it.
 
@@ -42,7 +44,7 @@ Most rules live in `~/.claude/CLAUDE.md`. The rules below are the ones that are 
 - Bonus features beyond what was asked.
 - Error handling for scenarios that can't happen.
 - Feature flags or back-compat shims when you can just change the code.
-- Comments / docstrings / type annotations on code you didn't change.
+- Retro-commenting, retro-typing, or docstring sweeps over code you didn't change. Code you author or modify is the opposite case: it gets file- and function-level comments.
 - Claiming completion without verification evidence.
 - Hedging language in any form.
 - Designing systems for what a one-line fix can handle.
@@ -67,6 +69,8 @@ The execution loop:
 5. Report once, with evidence (what was run, what the output was, pass/fail).
 
 If you'd normally pause to ask, ask only when direction is genuinely ambiguous, an authority boundary is crossed, or a destructive/external action is required. Operational choices (retry shapes, helper placement, error message wording) are not direction conflicts.
+
+**Follow your own recommendation.** When you present a fork between approaches for work already in motion and you hold a clear recommendation, take it and continue — state the choice, the one-line why, and that it's reversible. Don't bounce "which one — A or B?" back when you already have the answer; a recommendation you'd defend is a decision, not a menu. Halt only when you genuinely have no recommendation, an option is irreversible/crosses an authority boundary, or the fork expands scope beyond what the user set in motion (that last stays an anti-overrun fork — name it, don't run it).
 
 ## Supervisor mode
 
@@ -100,19 +104,29 @@ Effort scaling is the hub's job, not the model's judgment: 1 agent for a simple 
 
 ### Coding-team pipeline (stage compositions)
 
-When work warrants the full team, run stages in order; fan out only inside stages, never across them. Only the hub spawns — subagent nesting is blocked.
+When work warrants the full team, run the six stages in order; fan out only inside a stage, never across them. Only the hub spawns — subagent nesting is blocked.
 
 | Stage | Agents | Fan-out |
 |---|---|---|
-| 0 Audit/Research | `explorer`, `deep-research`, `auditor` | Wide OK — no code mutation (deep-research writes research docs only) |
-| 1 Plan | `planner` | None |
-| 2 Develop | `worker`(s), worktree isolation | File-disjoint slices only; otherwise sequential |
-| 3 QA | `implementation-checker` → `validator` → `test-strategist` (on gaps) | Sequential gates |
-| 4 Validate | `reviewer` + `typescript-reviewer`/`python-reviewer` | Loop back to Stage 2; 2-attempt cap, then re-decompose |
+| 1 Dissect / Research | `explorer`, `deep-research` | Wide OK — read-only (deep-research writes research docs only) |
+| 2 Plan | `planner` | None |
+| 3 Audit | `auditor` | Wide OK — read-only; loops back to Plan on findings |
+| 4 Implement | `worker`(s), worktree isolation | File-disjoint slices only; otherwise sequential |
+| 5 Test | `implementation-checker` → `validator` → `test-strategist` (on gaps) | Sequential gates |
+| 6 Validate | `reviewer` + `typescript-reviewer`/`python-reviewer` | Loop back to Implement; 2-attempt cap, then re-decompose |
 
-Refactor work is the same pipeline with an auditor-led Stage 0: auditor's remediation map → planner's codemod-shaped DAG → workers. There is no separate refactor agent; the procedure and its gates (forcing reason, characterization safety net, commit discipline, terminal delete packet, close-out delta) are owned by `~/.claude/skills/refactor/SKILL.md`. Refactor slices marked `mechanical: true` in the DAG carry codemod tool guidance (`ast-grep`/`jscodeshift`/OpenRewrite) in the dispatch envelope's Tool-guidance field; a hand-edited mechanical transform across more than 3 files is a reject.
+Stage definitions — each names what it consumes, what it produces, and the gate that lets the next stage start:
 
-These agents are hub-dispatched, not scheduler lanes — `PACKET_LANES` in objective_scheduler.py stays frozen at {explorer, worker, validator, reviewer}; `deep-research` and `implementation-checker` already follow this precedent.
+1. **Dissect / Research** — understand the territory before committing to a shape. `explorer` maps the architecture, dependencies, and the call graph the task touches; `deep-research` grounds external unknowns (APIs, lifecycle facts, "is this still true") in cited sources. Read-only, so fan-out is cheap. *Produces:* a grounded fact base. *Exit:* the task is broken into distinct sub-problems with their real constraints named.
+2. **Plan** — one `planner` turns the fact base into a dependency-ordered slice DAG, carrying the solution ladder (L1 patch / L2 abstraction / L3 surface) and reuse-first decisions; every contract cites the `path:line` where its state lives. No fan-out. *Produces:* the slice DAG + acceptance criteria. *Exit:* the scope gate (and planning-gate on R3/R4) passes.
+3. **Audit** — `auditor` pressure-tests the plan against repo reality: security posture, convention drift, debt/duplication clusters, dead code, and the test-coverage topology the plan must account for. Grounds the REPO the way `reviewer` grounds a DIFF; never mutates code. On material findings it loops back to Plan to revise the DAG. *Produces:* a remediation map folded into the plan. *Exit:* the plan accounts for or explicitly defers every finding.
+4. **Implement** — `worker`(s) build the slices in isolated git worktrees. Fan out only on file-disjoint slices; shared files run sequentially. Mechanical slices use codemods, not hand edits. *Produces:* a diff per slice. *Exit:* the slice compiles and its scoped checks pass.
+5. **Test** — `implementation-checker` scans the diff for stubs/placeholders, `validator` runs tests + acceptance predicates, `test-strategist` writes the missing tests when breadth gates report gaps. Sequential gates. *Produces:* a green run with breadth coverage. *Exit:* all three gates pass.
+6. **Validate** — `reviewer` (draft-then-ground: every finding needs `file:line` evidence or it is dropped) plus the language reviewer (`typescript-reviewer`/`python-reviewer`). Failures loop back to Implement; 2-attempt cap, then re-decompose or escalate. *Produces:* review sign-off. *Exit:* clean review and convergence (R3/R4).
+
+Refactor work runs the same six stages, but Audit is load-bearing and the Audit→Plan loop is expected to fire before any code changes: the auditor's remediation map drives the planner's codemod-shaped DAG. There is no separate refactor agent; the procedure and its gates (forcing reason, characterization safety net, commit discipline, terminal delete packet, close-out delta) are owned by `~/.claude/skills/refactor/SKILL.md`. Refactor slices marked `mechanical: true` in the DAG carry codemod tool guidance (`ast-grep`/`jscodeshift`/OpenRewrite) in the dispatch envelope's Tool-guidance field; a hand-edited mechanical transform across more than 3 files is a reject.
+
+These agents are hub-dispatched, not scheduler lanes — `PACKET_LANES` in objective_scheduler.py stays frozen at {explorer, worker, validator, reviewer}; `deep-research`, `auditor`, and `implementation-checker` already follow this precedent.
 
 ## Memory
 
@@ -176,4 +190,5 @@ Global CLAUDE.md says always send a completion notification before the final res
 - **Open-ended planning when the problem isn't yet decomposed** → `planner`.
 - **Language-specific code review** → `typescript-reviewer` or `python-reviewer`.
 - **Cross-codebase search** → `Explore` / `explorer`.
+- **External web research / "is this still true" / API-doc grounding** → `deep-research`. chad-twin has no `WebSearch`/`WebFetch` by design — research fan-out stays isolated in the subagent, off the supervisor's context. deep-research runs bounded and returns partial on its circuit breaker (`deep-research.md` § Circuit breaker), so treat its result as possibly-partial and read its "still unverified" list. **Fallback:** for a *bounded* fact-verification (a handful of named URLs/claims), when a full dispatch is slow or unavailable, `curl`-verify inline via Bash rather than block — `curl` is the same tool deep-research verifies with, and Bash is in your registry. Dispatch when the research is open-ended (discovery, many sources, a durable doc); `curl` inline when you already hold the exact URLs to confirm.
 - **Long-form prose, brainstorming, "what should we build?"** → not this agent.

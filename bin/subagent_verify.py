@@ -45,8 +45,16 @@ def _subagent_start_floor(hook_input: dict) -> float | None:
     The subagent's own transcript_path lets us bound "edits made by THIS
     subagent" to those after it started. Returns None when unresolvable —
     callers must then suppress (a subagent must not be nagged about edits it
-    cannot be shown to have made)."""
-    tp = hook_input.get("transcript_path")
+    cannot be shown to have made).
+
+    NOTE (2026-07-01 fix): on a SubagentStop event the subagent's OWN transcript
+    is at `agent_transcript_path`; plain `transcript_path` is the PARENT session's.
+    Reading the parent transcript put the floor at the parent's start, so EVERY
+    parent edit counted as "after the subagent started" — the read-only subagent
+    got nagged about the parent's edits and looped (the 2026-06-10 incident this
+    guard was meant to prevent, reintroduced by reading the wrong path). Prefer
+    the agent-specific path, matching completion_gate.py."""
+    tp = hook_input.get("agent_transcript_path") or hook_input.get("transcript_path")
     if not tp:
         return None
     p = Path(os.path.expanduser(tp))
@@ -67,6 +75,17 @@ def _subagent_start_floor(hook_input: dict) -> float | None:
         return None
 
 
+def _verify_mark_path(sid: str, agent_key: str) -> str:
+    """Per-(session, subagent) idempotency marker. A SubagentStop reminder itself
+    triggers another SubagentStop, so without this the reminder re-prompts the
+    subagent forever (2026-07-01: a read-only probe was handed the parent's edit
+    list 8x, and its defensive reply — not its deliverable — surfaced to the parent)."""
+    base = os.environ.get("CLAUDE_HOME", os.path.expanduser("~/.claude"))
+    d = os.path.join(base, "state", "subagent-verify-marks")
+    safe = "".join(c if c.isalnum() else "_" for c in f"{sid}-{agent_key}")[:180]
+    return os.path.join(d, safe + ".done")
+
+
 def main():
     # Read hook input from stdin
     try:
@@ -80,6 +99,21 @@ def main():
     sid = resolve_session_id(hook_input)
     if not sid:
         sys.exit(0)
+
+    # At-most-once per subagent task: claim an idempotency mark up front so the
+    # reminder cannot re-fire into a stop loop even if attribution is imperfect.
+    agent_key = str(hook_input.get("agent_id")
+                    or os.path.basename(str(hook_input.get("agent_transcript_path") or "sub")))
+    mark = _verify_mark_path(sid, agent_key)
+    if os.path.exists(mark):
+        sys.exit(0)
+    try:
+        os.makedirs(os.path.dirname(mark), exist_ok=True)
+        with open(mark, "w"):
+            pass
+    except OSError:
+        pass
+
     ledger_path = verify_ledger_path(sid)
 
     # Check if ledger has unverified edits

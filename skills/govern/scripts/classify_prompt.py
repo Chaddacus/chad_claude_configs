@@ -11,7 +11,10 @@ Output: JSON with route_hint, governance_recommended, reason.
 import json
 import os
 import re
+import secrets
 import sys
+from datetime import datetime, timezone
+from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.environ.get("CLAUDE_HOME", os.path.expanduser("~/.claude")), "bin"))
 from hook_profile import should_run
@@ -343,7 +346,8 @@ The mirror image of anti-stop. On 2026-06-10 an advisory request became an unrat
 
 1. **An agent-authored proposal is not a user instruction.** Implementing your own proposal requires explicit user direction or a filed fork record the user has answered. "Permission to work is implied" covers the work REQUESTED, not adjacent work you invented.
 2. **Hook pressure is not user intent.** When a stop-gate block conflicts with the user's request scope, restate the stop as a direction fork without permission-seeking phrasing — restated stops are never re-blocked (recursion guard in stop_gate.py).
-3. **Speed does not waive grounding.** Evidence scales with claims: "written/parses" rests on static checks; "works/operational" requires an execution run. A plan naming a config surface must cite the consumer file:line before shipping."""
+3. **Speed does not waive grounding.** Evidence scales with claims: "written/parses" rests on static checks; "works/operational" requires an execution run. A plan naming a config surface must cite the consumer file:line before shipping.
+4. **A defensible recommendation is a decision, not a menu.** When the fork is *which approach* for work the user already set in motion and you hold a clear recommendation, take it and continue (state choice + one-line why + reversibility) — do not bounce "A or B?" back. This carve-out does NOT loosen #1: inventing adjacent scope is still a fork you name and do not run."""
 
 
 R3_R4_GOVERNANCE_GATES = """## R3/R4 governed-lanes gates
@@ -424,13 +428,54 @@ def main():
     result = classify_prompt(prompt)
     result["deliverable_kind"] = deliverable_kind(prompt)
 
+    # --- Slice 5: bandit enabler (additive instrumentation) -------------------
+    # decision_id is the per-prompt join-key tying this routing decision to the
+    # session's stop outcome (read by stop_reason_telemetry.py). word_count and
+    # file_count are already computed inside classify_prompt(); recompute here
+    # (O(n), trivial on hook budget) so they land in the durable record.
+    decision_id = secrets.token_hex(8)   # 16-char hex, 64-bit entropy
+    word_count = len(prompt.split()) if prompt else 0
+    file_count = count_file_mentions(prompt)
+    result["decision_id"] = decision_id
+    result["word_count"] = word_count
+    result["file_count"] = file_count
+    # --------------------------------------------------------------------------
+
     # Write route to session-scoped temp file for downstream hook profile gating
-    route_file = f"/tmp/claude-route-{os.environ.get('CLAUDE_CODE_SESSION_ID') or os.environ.get('CLAUDE_SESSION_ID') or 'default'}.json"
+    session_id = (
+        os.environ.get("CLAUDE_CODE_SESSION_ID")
+        or os.environ.get("CLAUDE_SESSION_ID")
+        or "default"
+    )
+    route_file = f"/tmp/claude-route-{session_id}.json"
     try:
         with open(route_file, "w") as f:
             json.dump(result, f)
     except OSError:
         pass
+
+    # --- Slice 5: durable decision record (bandit training data) --------------
+    # Append to route_decisions.jsonl. Silent on any I/O error — hot path.
+    decision_log = Path(
+        os.environ.get("CLAUDE_HOME", os.path.expanduser("~/.claude"))
+    ) / "state" / "route_decisions.jsonl"
+    try:
+        decision_log.parent.mkdir(parents=True, exist_ok=True)
+        with decision_log.open("a", encoding="utf-8") as f:
+            f.write(json.dumps({
+                "ts": datetime.now(timezone.utc).isoformat(),
+                "session_id": session_id,
+                "decision_id": decision_id,
+                "route_hint": result["route_hint"],
+                "governance_recommended": result["governance_recommended"],
+                "reason": result["reason"],
+                "deliverable_kind": result["deliverable_kind"],
+                "word_count": word_count,
+                "file_count": file_count,
+            }, sort_keys=True) + "\n")
+    except OSError:
+        pass
+    # --------------------------------------------------------------------------
 
     status = (
         f"[route-classifier] route_hint={result['route_hint']} "

@@ -1,5 +1,3 @@
-# Global Configuration
-
 ---
 policy_doc_kind: global_agents
 classification: canonical
@@ -32,7 +30,10 @@ Policy: `~/.claude/CLAUDE.md`. Config: `~/.claude/settings.json`. Routing contra
 - Prefer PRD/story/task-file shaped planning artifacts for broad work, but treat them as working agreements, not source of truth after the code changes.
 - Keep the end goal in view. Do not stop at partial analysis when safe momentum remains.
 - Anti-overengineering is a gate, not an aspiration. Do not introduce a new service, persistence layer, schema family, or orchestration engine unless you can prove an existing primitive cannot satisfy the requirement. If you cannot prove it in one sentence, it fails.
-- If a proposed change exceeds `500 LOC` or `3` files, stop and justify before implementing. Unjustified scope growth is a defect.
+- If a proposed change exceeds `500 LOC` or `3` files, stop and justify before implementing. Unjustified scope growth is a defect. Slice-local doc updates (comments in authored code, the touched directory's README) do not count against this gate.
+- Code must be hard fought, not shotgunned. If you cannot say why each changed line is necessary, it is not necessary.
+- Correct beats plausible. The right change is the smallest one that truly resolves the cause — a 1-line update beats a thousand-line fix that also works.
+- Comment what you author: every file you create opens with a purpose comment; every function you write or materially change carries a comment stating what it does and why. Never retro-comment code you didn't touch.
 - Use `rg`/`rg --files` for search by default.
 - For non-trivial coding work, use omni-mem retrieval before implementation and save durable lessons afterward.
 - Treat `settings.json` and `route_manifest.json` as the canonical runtime surfaces.
@@ -47,44 +48,15 @@ Policy: `~/.claude/CLAUDE.md`. Config: `~/.claude/settings.json`. Routing contra
 
 ## Refinements (Karpathy addendum)
 
-Each clause refines a specific existing rule. When a refinement appears to conflict with the rule it names, the existing rule controls unless this section explicitly says "overrides" (none currently do). Project `CLAUDE.md` files may further refine; this section is global fallback. **This section is not the complete autonomous stop list.** The `### Anti-stop patterns (autonomous runs)` block and any anti-stop text injected by `classify_prompt.py` at runtime continue to control.
+Each clause refines the existing rule it names; on perceived conflict the existing rule controls. This is not the complete autonomous stop list — the anti-stop/anti-overrun blocks and `classify_prompt.py` injections continue to control. Full text with rationale, qualifiers, and examples: `~/.claude/standards/REFINEMENTS.md` (same authority; these bullets survive hook failure).
 
-### State assumptions before acting
-Refines: "Default to action over asking" + R5 ambiguity handling.
-
-For non-trivial implementation, record load-bearing assumptions in whichever surface is active: the plan, the auto-runtime track, the task envelope, or the final response. Do not create a new artifact for this. **Halt only when the user's intended outcome cannot be inferred and every available implementation would change a public contract, API shape, or cause irreversible mutation of user-visible data that the user has not authorized.** Reversible operational choices — retry counts, backoff shapes, dead-letter behavior, duplicate-suppression strategy, internal module boundaries, helper placement, error-logging verbosity — are not direction conflicts. Pick the simplest reversible choice, document it, continue. Missing repo precedent, failed probes, feasibility doubt, style uncertainty, large surface area, and verification friction are explicitly not direction conflicts. The scope gate (>500 LOC or >3 files) still requires internal justification before implementation; that is a planning pause, not a user question.
-
-### Match existing style
-Refines: surgical-changes / Rejected Patterns.
-
-Within a file, follow existing conventions — naming, import order, error-handling shape, test structure — even if a different style is better. Deviation is allowed only when (a) the local style is the direct cause of a failing behavior or named security finding in *this* change's scope, or (b) an explicit migration artifact already exists in the repo (issue, PRD, in-flight branch) that names the target style. "I'd prefer the other style" or "this looks legacy" is not sufficient; the deviation must be necessary for the requested change.
-
-### Use the model for judgment, not deterministic work
-Refines: new rule.
-
-If the input domain is bounded, the rules are stated or derivable, and a wrong answer would be a control-flow bug, implement it as code: in order of preference for the data shape — typed parser, function, then regex or shell pipeline. The model is for classification, drafting, summarization, extraction, code review, and design judgment. Do not use an LLM inside a loop to: dispatch to a known finite set of handlers, handle status codes, drive retry/backoff, validate schemas, do date or numeric math, sort or rank by stated criteria, build queries, or convert between known formats (JSON/YAML/TOML/AST). Semantic triage may use the model, but **the final dispatch decision must be made by deterministic predicates over recorded extracted facts**. When the runtime exposes a deterministic route classifier, use it; when it does not, the agent must construct explicit predicates rather than letting the model close the loop. If — after recording extracted facts and attempting an explicit "insufficient evidence" fallback — deterministic predicates still cannot be constructed, that is a direction conflict; halt and ask.
-
-### Surface budget breaches; do not silently overrun
-Refines: cycle budgets and ~70% auto-compact behavior in `## Autonomous Behavior`.
-
-When the auto-runtime emits an observable event in the track event log (`objective.events.jsonl`) that signals a budget breach, acknowledge it in the next user-facing message: which event, what step triggered it, what the next move is. Enforceable triggers:
-
-- **Cycle-budget exhaustion.** `event == "dispatch_blocked"` and `reason == "dispatch_cycle_cap_exceeded"` in the track log.
-- **Material route promotion.** `event == "route_promoted"` where `to_route` differs from `from_route` and, after comparing both through `~/.claude/state/route_manifest.json` or the materialized policy view, at least one of the following differs: dispatch mode, required verification gate, governance lane, or authority/risk class. A `route_promoted` event whose only difference is the cycle cap (e.g. R2→R3 with no other property change) does not need to be surfaced.
-
-- **Compaction.** `event == "compaction"` in the track log (appended by the PreCompact hook `precompact_track_marker.py` since 2026-06-09) falls under the same rule when it lands mid-track.
-
-This clause does not require mid-task progress reports in the absence of a breach event.
-
-### Surface conflicts; do not average them
-Refines: new rule.
-
-When the codebase has two or more patterns for the same concern (two HTTP clients, two test styles, two error shapes) and that conflict influences the change you are making, pick one explicitly, use it consistently, and flag the choice in the user-facing response (chosen precedent + rejected alternative). Inline TODO comments are allowed only when the codebase already uses TODOs for tracked debt and the comment names the required follow-up. Do not accidentally blend patterns into an unowned third style. An intentional bridge or adapter is allowed when named as such and scoped to the bridging boundary.
-
-### Read before you write
-Refines: "Reuse-first" + "Prefer discovering facts from the repo."
-
-Before adding code to a file, read: (a) the target file's existing exports and top-of-file imports, (b) up to 3 direct callers or callees found via `rg`, (c) up to 2 likely shared utility modules under the project's `utils/`, `lib/`, or equivalent. If this bounded pass does not resolve the pattern, document the unresolved assumption and continue. **Exception:** when scope is uncertain and `## Autonomous Behavior > ### Exploration` directs the use of an Explore subagent, that governance gate authorizes deeper exploration and these caps do not apply during that subagent's run.
+- **State assumptions before acting.** Record load-bearing assumptions in the active surface (plan, track, envelope, or response). Halt only when the intended outcome cannot be inferred AND every implementation would change a public contract or irreversibly mutate user-visible data without authorization. Reversible operational choices, missing precedent, failed probes, feasibility doubt, style uncertainty, and verification friction are not direction conflicts — pick the simplest reversible choice, document it, continue.
+- **Match existing style.** Follow the file's conventions even when a better style exists; deviate only when the local style directly causes a failing behavior or named security finding in this change's scope, or a repo migration artifact names the target style.
+- **Use the model for judgment, not deterministic work.** Bounded domain + statable rules + control-flow consequence → implement as code (typed parser, then function, then regex/pipeline). Final dispatch decisions come from deterministic predicates over recorded extracted facts, never a model closing the loop; if predicates cannot be constructed after an explicit insufficient-evidence fallback, halt and ask.
+- **Surface budget breaches; do not silently overrun.** Acknowledge cycle-cap `dispatch_blocked`, material `route_promoted`, and mid-track `compaction` events from the track log in the next user-facing message (trigger definitions: REFINEMENTS.md). No breach event → no mid-task progress report required.
+- **Surface conflicts; do not average them.** Two patterns for one concern: pick one explicitly, use it consistently, flag chosen + rejected in the response. No unowned blended third style; intentional bridges must be named as such and scoped.
+- **Read before you write.** Before adding code: read the target file's exports/imports, up to 3 direct callers/callees, up to 2 shared utility modules. Unresolved after that bounded pass → document the assumption and continue. Explore-subagent runs are exempt from the caps.
+- **Follow your own recommendation.** Holding a defensible recommendation at a fork in work already in motion is a decision: take it, state choice + one-line why + reversibility. Halt only with no recommendation, an irreversible/authority-crossing option, or a scope-expanding fork (name it, do not run it).
 
 ## Autonomous Behavior
 
@@ -96,6 +68,8 @@ Before adding code to a file, read: (a) the target file's existing exports and t
 - When a task arrives, GO. Do not ask "should I start?", "is this the right approach?", or "should I proceed?". Permission to work is implied by the user sending the task.
 - On non-trivial work, initialize an auto-runtime track: `python3 ~/.claude/bin/auto_runtime.py init --task "<objective>" --cwd "$PWD"`. Save the `track_id`.
 - Decompose the task into slices. Each slice: implement -> test the changed code -> fix failures -> next slice.
+- When a slice materially changes a directory's behavior, update that directory's README/summary in the same slice — what it does now, how it works, key references. Part of the slice's definition of done, not bonus scope. No separate doc passes; no summaries for directories you didn't touch.
+- On autonomous runs, commit at every green slice boundary on a `codex/` work branch. Small revertable commits are the backup and the audit trail. Committing is not a stop and not a report — keep moving. Push and PR only per Safety And Git Rules.
 - Prefer vertical slices/tracer bullets that cross the minimum necessary layers and produce integrated feedback before expanding breadth.
 - Keep module boundaries explicit. Design simple interfaces around deep modules, then delegate implementation behind those testable boundaries.
 - Revalidate old PRDs, plans, and issue text against the current code before treating them as authoritative.
@@ -103,7 +77,7 @@ Before adding code to a file, read: (a) the target file's existing exports and t
 - Update slice state via `auto_runtime.py update-node` with evidence refs on completion.
 - **Do not stop between slices. Do not report progress. Do not ask for permission to continue.** The only reasons to stop are: (1) genuine ambiguity about direction, (2) external dependency you cannot resolve, (3) authority boundary (destructive/external action). Everything else — keep going.
 - When a task decomposes into genuinely parallel, low-conflict parts, use subagents via the Agent tool. Do not parallelize when changes touch shared state or the same files.
-- Dispatch budgets are enforced (owner: `~/.claude/bin/auto_runtime_common.py` `DISPATCH_CYCLE_MAX_BY_ROUTE`): R1=6, R2=12, R3=24, R4=40 cycles. Route promotion escalates automatically on repeated failures.
+- Dispatch budgets are enforced (owner: `~/.claude/bin/auto_runtime_common.py` `DISPATCH_CYCLE_MAX_BY_ROUTE`): R1=6, R2=12, R3=24, R4=40, R5=4 cycles. Route promotion escalates automatically on repeated failures.
 - At ~70% context window usage, auto-compact fires (enabled in settings.json). The PreCompact hook persists memory to omni-mem before compaction. After compaction, continue working — do not stop to report.
 - If tests fail, fix them. If a file is missing, create it. If a dependency is needed, install it. If the approach fails 3x, try a different approach. Do not stop to ask.
 
@@ -111,7 +85,7 @@ Before adding code to a file, read: (a) the target file's existing exports and t
 
 On autonomous runs: do not stop early, do not declare false completion, do not defer shippable code because "verification will eventually need a human." The Stop hook's `AUTO-SAVE` is a memory checkpoint, not an exit signal — continue the loop. Only legitimate exits are genuine ambiguity, unresolvable external dependency, or authority boundary.
 
-Full rule set (with examples and the Phase β retrospective context) is injected on R3/R4/R5 prompts by `~/.claude/skills/govern/scripts/classify_prompt.py` via UserPromptSubmit additionalContext. That file is the source of truth; this stub exists so the guardrail survives hook failure.
+Full rule set (with examples and the Phase β retrospective context) is injected on R3/R4/R5 prompts by `~/.claude/skills/govern/scripts/classify_prompt.py` via UserPromptSubmit additionalContext. That file is the source of truth; this stub exists so the guardrail survives hook failure. On R5 the gate set is a hold-until-reclassified bridge; the disambiguated work then runs the gates in earnest as R3/R4.
 
 ### Anti-overrun patterns (all runs)
 
@@ -124,7 +98,7 @@ Full rule set is injected on R3/R4/R5 prompts by `~/.claude/skills/govern/script
 - Scope verification to what the current slice changed. Run the full test suite only at task completion, not between slices.
 - If tests fail after your changes, fix them immediately. Don't report failure and wait.
 - Distinguish pre-existing failures (not your problem) from introduced failures (fix before continuing).
-- Do not use hedging language ("should work," "probably passes," "seems correct") when reporting verification outcomes. State what was run, what the output was, and whether it passed or failed. If not yet verified, say so explicitly.
+- Do not use hedging language ("should work," "probably passes," "seems correct") when reporting verification outcomes. State the exact commands run and their output — pass or fail. Verification that cannot be reproduced from your report is not evidence. If not yet verified, say so explicitly.
 
 ### Completion
 - State what evidence supports "done" — test results, typecheck output, or explicit verification commands you ran.
@@ -154,6 +128,12 @@ Before stopping on non-trivial work, file a structured completion record (`compl
 - Do not amend commits unless explicitly asked.
 - Prefer non-interactive git commands.
 - Respect dirty worktrees. Do not revert unrelated user changes.
+
+## Secret Access (Bitwarden via rbw)
+
+- Secrets come from Chad's Bitwarden vault via `rbw`. Never ask Chad to paste a secret, never write one to a plaintext file, NEVER print a secret value — interpolate inline.
+- If rbw is locked ("agent not running"), STOP and ask Chad to run `rbw unlock` — login/unlock are his interactive acts; reading unlocked secrets is yours.
+- Usage detail (commands, account, unlock timeout): `~/.claude/standards/SECRETS_RBW.md`.
 
 ## Communication And Output
 
