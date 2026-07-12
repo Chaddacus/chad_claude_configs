@@ -33,6 +33,48 @@ HOME = Path(os.environ.get("CLAUDE_HOME", os.path.expanduser("~/.claude")))
 STATE_DIR = HOME / "state"
 TELEMETRY_LOG = STATE_DIR / "stop_reason_telemetry.jsonl"
 COUNTERS = STATE_DIR / "stop_reason_counters.json"
+REWARDS_LOG = STATE_DIR / "route_rewards.jsonl"  # Slice 5: bandit training data
+
+# --- Slice 5: bandit reward signal -----------------------------------------
+# stop_reason → scalar reward ∈ [-1, +1]. Read at session Stop, joined to the
+# route decision via decision_id (written by classify_prompt.py).
+_REWARD_MAP = {
+    "end_turn": 1.0,       # natural termination — agent completed cleanly
+    "stop_sequence": 1.0,  # explicit stop_sequence — also natural completion
+    "max_turns": -1.0,     # iteration cap fired — loop didn't self-terminate
+    # tool_use as the FINAL session stop_reason = the session ended while a
+    # tool call was pending. This is abnormal (not a normal mid-turn tool
+    # call, which this hook never observes — it only sees the session's last
+    # stop reason). The run was cut off.
+    "tool_use": -0.5,
+}
+
+
+def _route_reward(stop_reason: str) -> float:
+    """Scalar reward for bandit training. Range [-1, +1]. Unknown = 0.0."""
+    return _REWARD_MAP.get(stop_reason, 0.0)
+
+
+def _read_route_context(session_id: str) -> dict:
+    """Read the per-session route temp file. Returns {} on any error so the
+    caller treats a missing decision_id as 'no join available'."""
+    route_file = Path(f"/tmp/claude-route-{session_id}.json")
+    try:
+        with route_file.open() as f:
+            ctx = json.load(f)
+        return ctx if isinstance(ctx, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _append_rewards_log(record: dict) -> None:
+    try:
+        STATE_DIR.mkdir(parents=True, exist_ok=True)
+        with REWARDS_LOG.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(record, sort_keys=True) + "\n")
+    except OSError:
+        pass
+# ---------------------------------------------------------------------------
 
 # Read the tail of the transcript without slurping the whole file. 64KB is
 # plenty for the last assistant message and well within hook latency budget.
@@ -136,17 +178,45 @@ def main() -> int:
         return 0
 
     agent_type = str(payload.get("agent_type") or "unknown")
+    session_id = str(payload.get("session_id") or "unknown")
+
+    # --- Slice 5: reward record with join-key --------------------------------
+    # Only a main-session Stop can join to a route decision (the route file is
+    # written per session by classify_prompt.py). SubagentStop has no route
+    # decision of its own → decision_id stays None (contributes no gradient).
+    route_ctx = _read_route_context(session_id) if event == "Stop" else {}
+    reward = _route_reward(stop_reason)
+    decision_id = route_ctx.get("decision_id")
+    # -------------------------------------------------------------------------
+
     record = {
         "ts": datetime.now(timezone.utc).isoformat(),
         "event": event,
         "agent_type": agent_type,
         "agent_id": payload.get("agent_id"),
-        "session_id": payload.get("session_id"),
+        "session_id": session_id,
         "stop_reason": stop_reason,
         "model": model,
+        # Bandit join fields (None when no route context is available):
+        "decision_id": decision_id,
+        "route_hint_at_decision": route_ctx.get("route_hint"),
+        "reward": reward,
     }
     _append_log(record)
     _bump_counter(agent_type, stop_reason)
+
+    # Write the separate rewards log only when a join exists — keeps the
+    # bandit training set free of SubagentStop rows with no decision.
+    if decision_id is not None:
+        _append_rewards_log({
+            "ts": record["ts"],
+            "session_id": session_id,
+            "agent_type": agent_type,
+            "decision_id": decision_id,
+            "route_hint_at_decision": route_ctx.get("route_hint"),
+            "stop_reason": stop_reason,
+            "reward": reward,
+        })
     return 0
 
 

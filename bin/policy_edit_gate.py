@@ -70,6 +70,18 @@ HIGH_STAKES_PATHS = {
 MATRIX_SCRIPT = CLAUDE_HOME / "skills" / "autoconfig" / "scripts" / "run_benchmark_matrix.py"
 MATRIX_TIMEOUT_S = int(os.environ.get("POLICY_EDIT_GATE_MATRIX_TIMEOUT", "1800"))
 
+# Pointer-integrity gate: blocks edits that INTRODUCE a filesystem pointer that
+# does not resolve on disk. Independent of the benchmark matrix and of async
+# mode; covers a broader doc set (CLAUDE.md + standards/ + rules/ + agents/).
+POINTER_CHECK_SCRIPT = CLAUDE_HOME / "bin" / "policy_pointer_check.py"
+POINTER_WATCHED_GLOBS = [
+    str(CLAUDE_HOME / "CLAUDE.md"),
+    str(CLAUDE_HOME / "standards") + "/*.md",
+    str(CLAUDE_HOME / "rules") + "/*.md",
+    str(CLAUDE_HOME / "agents") + "/*.md",
+]
+POINTER_CHECK_TIMEOUT_S = int(os.environ.get("POLICY_EDIT_GATE_POINTER_TIMEOUT", "15"))
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -219,6 +231,73 @@ def _run_matrix(candidate_home: Path) -> dict[str, Any]:
     }
 
 
+def _is_pointer_watched(target: str) -> bool:
+    if not target:
+        return False
+    abs_target = str(Path(target).expanduser().resolve())
+    for pattern in POINTER_WATCHED_GLOBS:
+        if abs_target == pattern:
+            return True
+        if "*" in pattern and fnmatch.fnmatch(abs_target, pattern):
+            return True
+    return False
+
+
+def _pointer_danglers(content: str) -> set[str] | None:
+    """Run policy_pointer_check.py over `content`; return the set of dangling
+    pointer strings, or None if the check could not run (fail-open)."""
+    if not POINTER_CHECK_SCRIPT.is_file():
+        return None
+    tmp = None
+    try:
+        with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False) as tf:
+            tf.write(content)
+            tmp = tf.name
+        proc = subprocess.run(
+            ["python3", str(POINTER_CHECK_SCRIPT), tmp],
+            capture_output=True, text=True, timeout=POINTER_CHECK_TIMEOUT_S,
+        )
+    except (subprocess.SubprocessError, OSError):
+        return None
+    finally:
+        if tmp:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+    danglers: set[str] = set()
+    for line in proc.stdout.splitlines():
+        if line.startswith("DANGLING POINTER:") and " -> " in line:
+            danglers.add(line.split(" -> ", 1)[1].strip())
+    return danglers
+
+
+def _pointer_block_if_new_danglers(target_path: Path, current: str, proposed: str) -> int | None:
+    """Return 2 (block) if `proposed` introduces danglers absent from `current`.
+    Returns None to allow (no new danglers, or the check could not run)."""
+    base = _pointer_danglers(current)
+    prop = _pointer_danglers(proposed)
+    if base is None or prop is None:
+        _log(f"POINTER_CHECK skipped (checker unavailable) target={target_path}")
+        return None
+    new = prop - base
+    if not new:
+        return None
+    listing = "\n  ".join(sorted(new))
+    print(
+        f"policy_edit_gate: BLOCKED — proposed edit to {target_path.name} introduces "
+        f"pointer(s) that do not resolve on disk:\n  {listing}\n"
+        f"Fix the path, or set POLICY_EDIT_GATE_BYPASS=1 to override.",
+        file=sys.stderr,
+    )
+    _log(f"POINTER_BLOCK target={target_path} new_danglers={sorted(new)}")
+    _record_evidence({
+        "ts": _now(), "action": "pointer_block",
+        "target": str(target_path), "new_danglers": sorted(new),
+    })
+    return 2
+
+
 def main() -> int:
     try:
         payload = json.loads(sys.stdin.read() or "{}")
@@ -228,10 +307,38 @@ def main() -> int:
         return 0
 
     target = _extract_target(payload)
-    if not _is_watched(target):
+    matrix_watched = _is_watched(target)
+    pointer_watched = _is_pointer_watched(target)
+    if not matrix_watched and not pointer_watched:
         return 0  # not our problem; fast-path allow
 
     target_path = Path(target).expanduser().resolve()
+
+    if BYPASS_MODE:
+        _log(f"BYPASS allowing edit to {target_path} (POLICY_EDIT_GATE_BYPASS=1)")
+        _record_evidence({
+            "ts": _now(), "action": "bypass", "target": str(target_path),
+            "reason": "POLICY_EDIT_GATE_BYPASS=1",
+        })
+        return 0
+
+    # Pointer-integrity gate (fail-closed on NEW danglers). Runs for any
+    # pointer-watched policy doc, independent of the benchmark matrix and async
+    # mode. Errors fail open (never crash-block a policy edit).
+    if pointer_watched:
+        try:
+            current_pc = target_path.read_text() if target_path.exists() else ""
+            proposed_pc = _proposed_content(payload, current_pc)
+            if proposed_pc != current_pc:
+                rc = _pointer_block_if_new_danglers(target_path, current_pc, proposed_pc)
+                if rc is not None:
+                    return rc
+        except Exception as exc:  # noqa: BLE001 — never crash-block
+            _log(f"POINTER_CHECK error on {target_path}: {exc}; allowing")
+
+    # The benchmark-matrix gate applies only to matrix-watched paths.
+    if not matrix_watched:
+        return 0
 
     # Decide sync/async per target. Forced env vars win; otherwise high-stakes
     # paths run sync, everything else runs async.
@@ -243,14 +350,6 @@ def main() -> int:
     else:
         async_mode = not is_high_stakes
     _log(f"GATE target={target_path} async={async_mode} high_stakes={is_high_stakes} bypass={BYPASS_MODE}")
-
-    if BYPASS_MODE:
-        _log("BYPASS allowing edit (POLICY_EDIT_GATE_BYPASS=1)")
-        _record_evidence({
-            "ts": _now(), "action": "bypass", "target": str(target_path),
-            "reason": "POLICY_EDIT_GATE_BYPASS=1",
-        })
-        return 0
 
     if not target_path.exists():
         # New file — no baseline to compare against. Record + allow.

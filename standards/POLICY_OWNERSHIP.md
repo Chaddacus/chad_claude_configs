@@ -23,7 +23,7 @@ This document is the maintenance guardrail for Codex policy changes.
   - [CLAUDE.md](/Users/chadsimon/.claude/CLAUDE.md)
   - Owns safety, communication, review expectations, route summary, and when non-trivial gates apply.
 - Workspace-local behavior:
-  - [CLAUDE.md](/Users/chadsimon/code/CLAUDE.md)
+  - project-level `CLAUDE.md` (per repo: `<repo>/CLAUDE.md` or `<repo>/.claude/`)
   - Owns session ritual, local memory workflow, heartbeat behavior, local notification rules, and other workspace-only overrides.
 - Task workflow:
   - skills under `/Users/chadsimon/.agents/skills` and `/Users/chadsimon/.claude/skills`
@@ -69,7 +69,7 @@ Human-readable AGENTS policy must not attempt to override machine-enforced runti
 
 - Every new policy-bearing file must name its canonical owner or explicitly declare itself non-canonical.
 - Every new policy-bearing file must justify why it is not a duplicate of an existing canonical surface.
-- Every change to AGENTS files, policy-bearing skills, or standards docs must run `/Users/chadsimon/code/scripts/check_codex_policy_consistency.py`.
+- Every change to `~/.claude` policy files (CLAUDE.md, standards docs, policy-bearing skills, `rules/*.md`) must run `~/.claude/bin/policy_pointer_check.py` to confirm no canonical pointer is left dangling. The legacy Codex-home checker `/Users/chadsimon/code/scripts/check_codex_policy_consistency.py` is Codex-scoped and currently non-functional (its index `/Users/chadsimon/code/docs/policy-index.json` has been stale since 2026-03-11 and names dead Codex-era paths); repairing it is the Codex home's responsibility, not a gate for `~/.claude` edits.
 - During periodic pruning, search for duplicate ownership/inventory docs, trim new policy prose back to its canonical layer, remove obsolete task artifacts, and update the inventory when the canonical surface changes.
 
 ## Known Canonical References
