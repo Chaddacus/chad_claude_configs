@@ -30,6 +30,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from omni_mem_route import container_for_cwd
+
 REPO_HOME = Path.home() / ".claude"
 SCHEMA_PATH = REPO_HOME / "state" / "product_truth" / "_schema.json"
 
@@ -266,7 +268,8 @@ def _emit_facts(data: dict[str, Any], workspace_id: str = "chadsimon") -> int:
                 [
                     "docker",
                     "exec",
-                    "omni-mem",
+                    # Vault routed by cwd: ~/chad_personal -> personal, else work.
+                    container_for_cwd(),
                     "omni-mem",
                     "fact_add",
                     "--workspaceId",

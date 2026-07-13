@@ -24,6 +24,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from omni_mem_route import container_for_cwd
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -1588,7 +1590,11 @@ def _omni_mem_checkpoint(
         return {"status": "skipped", "reason": "disabled"}
     workspace_id = os.path.basename(os.path.normpath(cwd)) if cwd else "global"
     cli = os.environ.get("OMNI_MEM_CLI_BIN", "omni-mem")
-    container = os.environ.get("OMNI_MEM_CONTAINER", "omni-mem")
+    # Unset -> vault routed by cwd (~/chad_personal -> omni-mem-personal, else
+    # omni-mem). Explicit "" keeps the documented local-CLI fallback.
+    container = os.environ.get("OMNI_MEM_CONTAINER")
+    if container is None:
+        container = container_for_cwd(cwd)
     args = [
         cli, "generate_checkpoint",
         "--workspaceId", workspace_id,
@@ -2569,7 +2575,8 @@ def _record_memory_lifecycle_gate(
     try:
         result = subprocess.run(
             [
-                "docker", "exec", "-i", "omni-mem", "omni-mem",
+                # Vault routed by cwd: ~/chad_personal -> omni-mem-personal, else omni-mem.
+                "docker", "exec", "-i", container_for_cwd(cwd), "omni-mem",
                 "save-memory",
                 "--title", title,
                 "--text", text,

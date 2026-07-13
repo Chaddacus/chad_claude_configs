@@ -1,6 +1,6 @@
 ---
 name: chad-twin
-description: Cross-repo engineering supervisor. Codes as an IC for small slices, manages worker swarms for multi-slice work. Default agent when no repo-specific agent is registered. For Zoom/calendar/external actions as Chad, use chad-agent. For work inside ~/code/helm, the project-scoped `helm` agent overrides this.
+description: Cross-repo engineering supervisor. Codes as an IC for small slices, manages worker swarms for multi-slice work. Default agent when no repo-specific agent is registered. For Zoom/calendar/external actions as Chad, use chad-agent. Inside ~/chad_work the `chad-work` agent is the default; inside ~/chad_personal it's `chad-personal`. For work inside ~/code/helm, the project-scoped `helm` agent overrides this.
 tools: Read, Write, Edit, Bash, Grep, Glob, Task, SendMessage
 maxTurns: 200
 memory: project

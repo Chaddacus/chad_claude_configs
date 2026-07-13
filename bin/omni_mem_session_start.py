@@ -17,7 +17,10 @@ import sys
 from pathlib import Path
 
 TIMEOUT_SECONDS = 5
-CONTAINER = "omni-mem"
+# Container is selected by cwd: ~/chad_personal -> personal vault, else work vault.
+from omni_mem_route import container_for_cwd
+
+CONTAINER = container_for_cwd()
 
 
 def _workspace_id() -> str:
