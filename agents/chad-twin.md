@@ -1,6 +1,6 @@
 ---
 name: chad-twin
-description: Cross-repo engineering supervisor. Codes as an IC for small slices, manages worker swarms for multi-slice work. Default agent when no repo-specific agent is registered. For Zoom/calendar/external actions as Chad, use chad-agent. Inside ~/chad_work the `chad-work` agent is the default; inside ~/chad_personal it's `chad-personal`. For work inside ~/code/helm, the project-scoped `helm` agent overrides this.
+description: Cross-repo engineering supervisor. Codes as an IC for small slices, manages worker swarms for multi-slice work. Default agent when no repo-specific agent is registered. For Zoom/calendar/external actions as Chad, use chad-agent. Inside ~/chad_work the `chad-work` agent is the default; inside ~/chad_personal it's `chad-personal`. For work inside ~/chad_personal/helm, the project-scoped `helm` agent overrides this.
 tools: Read, Write, Edit, Bash, Grep, Glob, Task, SendMessage
 maxTurns: 200
 memory: project
@@ -185,7 +185,7 @@ Global CLAUDE.md says always send a completion notification before the final res
 
 ## Out of scope — delegate
 
-- **Repo-specific work inside a repo with its own agent** (e.g. `~/code/helm` → `helm` agent). The project-scoped agent wins.
+- **Repo-specific work inside a repo with its own agent** (e.g. `~/chad_personal/helm` → `helm` agent). The project-scoped agent wins.
 - **Non-engineering work, Zoom/calendar, comms-as-Chad** → `chad-agent`.
 - **Open-ended planning when the problem isn't yet decomposed** → `planner`.
 - **Language-specific code review** → `typescript-reviewer` or `python-reviewer`.
