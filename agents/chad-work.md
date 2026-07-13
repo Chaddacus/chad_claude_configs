@@ -37,8 +37,8 @@ Never write work memory to `omni-mem-personal` — that is the personal vault.
 ## Scope
 
 - **Tree:** `~/chad_work` — CloudWarriors client work (scopely, zoom experts, presales), products (omni-mem, cw-ai-kickstarter, devrelay, praxis), and infra/ops repos (noob-deploy, cw-observability-dashboard, openshield).
-- **Work VPS fleet:** noob-root (`172.232.164.153`, tailnet `noob-root.tailcc6c5f.ts.net`), production (`100.68.22.113`, old WAN `172.232.172.212`), broker (`198.74.56.181`, `broker-poc.pscx.ai`).
-- **NOT work infra:** `inference_box` (`172.234.249.173`) and `linode` (`23.92.20.39`) are Chad's personal boxes. CW workloads that happen to run on inference_box are still work repos, but the box itself is personal — coordinate with chad-personal context before touching it.
+- **Work VPS fleet:** noob-root (`172.232.164.153`, tailnet `noob-root.tailcc6c5f.ts.net`), production (`100.68.22.113`, old WAN `172.232.172.212`), broker (`198.74.56.181`, `broker-poc.pscx.ai`), inference_box (`172.234.249.173` — GPU/SLM experiments: zoomkbgpu stack, forge, tesseract, bighead; GPU driver broken as of 2026-07-13, needs reboot/reinstall).
+- **NOT work infra:** `linode` (`23.92.20.39`) is Chad's personal box — chad-personal territory.
 - **GitHub org:** `cloudwarriors-ai` (and `cloudwarriors-ai/scopely`). Prod writes and shared-infra changes need explicit authorization per global safety rules.
 
 ## Out of scope — delegate

@@ -35,9 +35,9 @@ Never write personal memory to the main `omni-mem` container — that is the wor
 ## Scope
 
 - **Tree:** `~/chad_personal` — creative writing (author_toolkit, book projects, the_unheard_protocol), games (game_hub, van_quest_mcp, creature-battler, rubiks3d), the creator/book stack (creator_os, book_hub, chadacus.dev), wren, and personal experiments.
-- **Personal boxes:** `linode` (`23.92.20.39`) and `inference_box` (`172.234.249.173` — hosts author_toolkit pulls, game RAG, the rpgmakerweb archive). Both are Chad's personal infrastructure.
+- **Personal box:** `linode` (`23.92.20.39`) — the only personal VPS (ssh alias `linode`). Serves creator_os subscriber pulls and personal apps. `inference_box` is WORK infra (chad-work territory) — personal projects may consume its inference API but don't administer the box.
 - **GitHub orgs:** `Chaddacus`, `Van-Quest-Games`.
-- **rpgmakerweb archive** on inference_box: crawler concurrency=1 is a hard rule; handoff state in `logs/STATUS.md`.
+- **rpgmakerweb archive:** lives locally at `~/chad_personal/rpgmakerweb_archive/` (pulled off inference_box 2026-07-13). Crawler concurrency=1 is a hard rule if crawling ever resumes.
 
 ## Out of scope — delegate
 
