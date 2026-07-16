@@ -26,7 +26,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import sys
+import tempfile
 import time
 from pathlib import Path
 from typing import Any, Callable, Optional
@@ -78,14 +80,20 @@ def _relative_cite_hints(owned_scope: list[str], main_repo: Path) -> list[str]:
 
 
 def render_worker_prompt(node: dict, attempt: int, last: Optional[ExecutorResult],
-                         verification_commands: list[str]) -> str:
+                         verification_commands: list[str], main_repo: Path) -> str:
     """Render a self-contained worker prompt from the slice contract. On retry,
-    fold the prior failure in so the fresh worker doesn't repeat it."""
+    fold the prior failure in so the fresh worker doesn't repeat it.
+
+    CRITICAL: owned_scope is relativized against main_repo and absolute paths are
+    dropped. The worker runs in an isolated worktree; leaking the main-repo
+    absolute path (owned_scope defaults to [cwd]) makes claude edit the main repo
+    directly, tripping worker_sandbox's drift guard (observed live 2026-07-15)."""
     contract = node.get("slice_contract", {})
     title = node.get("title") or node.get("label") or node.get("id", "slice")
     lines = [
         "You are an autonomous coding worker. Complete EXACTLY this one slice of "
-        "work in the current directory, then stop. Do not do anything outside its scope.",
+        "work using ONLY relative paths inside the current working directory, then "
+        "stop. NEVER edit files by absolute path or outside the current directory.",
         "",
         f"# Slice: {title}",
     ]
@@ -95,9 +103,9 @@ def render_worker_prompt(node: dict, attempt: int, last: Optional[ExecutorResult
     if criteria:
         lines += ["", "# Acceptance criteria (all must hold):"]
         lines += [f"- {c}" for c in criteria]
-    owned = [p for p in (node.get("owned_scope") or []) if str(p) not in (".", "")]
+    owned = _relative_cite_hints(node.get("owned_scope", []), Path(main_repo))
     if owned:
-        lines += ["", "# You may ONLY edit these paths:"]
+        lines += ["", "# You may ONLY edit these paths (relative to the current directory):"]
         lines += [f"- {p}" for p in owned]
     if verification_commands:
         lines += ["", "# Verification that will be run against your work:"]
@@ -112,19 +120,27 @@ def render_worker_prompt(node: dict, attempt: int, last: Optional[ExecutorResult
 
 def build_slice_spec(*, node: dict, slice_id: str, attempt: int, last: Optional[ExecutorResult],
                      verification_commands: list[str], worker_command: list[str],
-                     main_repo: Path) -> SliceSpec:
-    """Assemble the CP5 SliceSpec for one attempt of one slice."""
+                     main_repo: Path, workers_dir: Optional[Path] = None) -> SliceSpec:
+    """Assemble the CP5 SliceSpec for one attempt of one slice.
+
+    `workers_dir` places the worker's worktree OUTSIDE main_repo. This matters
+    for a real `claude` worker: if the worktree lives under main_repo/.git,
+    claude resolves the *enclosing* repo as its workspace root and edits main
+    directly, tripping worker_sandbox's HEAD/drift guard (observed live
+    2026-07-15). A sibling dir outside the repo makes the worktree claude's root.
+    """
     check_cmd = " && ".join(verification_commands)
     verifier_command = ["python3", VERIFIER_SHIM, "--check", check_cmd]
     for hint in _relative_cite_hints(node.get("owned_scope", []), main_repo):
         verifier_command += ["--cite-file", hint]
     title = node.get("title") or slice_id
     return SliceSpec(
-        prompt=render_worker_prompt(node, attempt, last, verification_commands),
+        prompt=render_worker_prompt(node, attempt, last, verification_commands, main_repo),
         commit_message=f"cp6({slice_id}): {title}",
         worker_command=list(worker_command),
         verifier_command=verifier_command,
         branch_name=f"codex/{slice_id}-try{attempt}",
+        workers_dir=workers_dir,
     )
 
 
@@ -156,7 +172,12 @@ def run_track(
     results: list[dict] = []
     closure_state = None
 
-    for i in range(max_slices):
+    # Worker worktrees live OUTSIDE main_repo so a real claude worker resolves
+    # its own worktree as the workspace root (see build_slice_spec). Cleaned at end.
+    workers_root = Path(tempfile.mkdtemp(prefix="cp6-workers-"))
+
+    try:
+      for i in range(max_slices):
         with rt.TrackLock(track_id):
             dispatch = rt.dispatch_track(track_id)
         if dispatch.get("status") != "dispatched":
@@ -181,10 +202,10 @@ def run_track(
             continue
 
         def build_spec(attempt: int, last: Optional[ExecutorResult],
-                       _node=node, _sid=slice_id, _vc=verification_commands) -> SliceSpec:
+                       _node=node, _sid=slice_id, _vc=verification_commands, _wr=workers_root) -> SliceSpec:
             return build_slice_spec(node=_node, slice_id=_sid, attempt=attempt, last=last,
                                     verification_commands=_vc, worker_command=wc,
-                                    main_repo=main_repo)
+                                    main_repo=main_repo, workers_dir=_wr)
 
         outcome = run_slice_with_retry(
             main_repo=main_repo, build_spec=build_spec, max_attempts=max_attempts,
@@ -220,6 +241,8 @@ def run_track(
         closure_state = _load_state(track_id)["views"]["closure"].get("closure_state")
         if closure_state in TERMINAL_CLOSURE:
             break
+    finally:
+        shutil.rmtree(workers_root, ignore_errors=True)
 
     accepted = sum(1 for r in results if r.get("result") == "accepted")
     blocked = sum(1 for r in results if r.get("result") == "blocked")

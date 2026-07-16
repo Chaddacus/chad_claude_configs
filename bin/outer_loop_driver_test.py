@@ -67,12 +67,12 @@ class TestPureRendering(unittest.TestCase):
             "slice_contract": {"acceptance_criteria": ["tests pass"], "verification_commands": ["pytest -q"]},
             "owned_scope": ["src/x.py"],
         }
-        first = cp6.render_worker_prompt(node, 1, None, ["pytest -q"])
+        first = cp6.render_worker_prompt(node, 1, None, ["pytest -q"], Path("/repo"))
         self.assertIn("Add feature X", first)
         self.assertIn("tests pass", first)
         self.assertIn("src/x.py", first)
         self.assertNotIn("previous attempt", first)
-        retry = cp6.render_worker_prompt(node, 2, ExecutorResult(ok=False, stage="verify", error="assertion failed"), ["pytest -q"])
+        retry = cp6.render_worker_prompt(node, 2, ExecutorResult(ok=False, stage="verify", error="assertion failed"), ["pytest -q"], Path("/repo"))
         self.assertIn("attempt 2", retry)
         self.assertIn("verify", retry)
 
@@ -88,6 +88,14 @@ class TestPureRendering(unittest.TestCase):
         self.assertIn("--cite-file", spec.verifier_command)
         self.assertIn("a.py", spec.verifier_command)
         self.assertTrue(spec.branch_name.endswith("try1"))
+
+    def test_prompt_never_leaks_absolute_main_path(self):
+        # Regression (live 2026-07-15): owned_scope defaults to [cwd] (absolute
+        # main-repo path); leaking it made the claude worker edit main directly.
+        node = {"id": "slice-1", "title": "t", "slice_contract": {}, "owned_scope": ["/tmp/somerepo"]}
+        p = cp6.render_worker_prompt(node, 1, None, ["true"], Path("/tmp/somerepo"))
+        self.assertNotIn("/tmp/somerepo", p)
+        self.assertIn("current working directory", p)
 
     def test_relative_cite_hints_drops_repo_root(self):
         hints = cp6._relative_cite_hints(["/repo", "/repo/src/a.py", "b.py", "."], Path("/repo"))
