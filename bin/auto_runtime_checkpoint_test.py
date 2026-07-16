@@ -86,6 +86,24 @@ class CheckpointScopeTest(unittest.TestCase):
         finally:
             outside.unlink(missing_ok=True)
 
+    def test_symlinked_repo_root_cwd_still_commits_only_owned(self) -> None:
+        # Delta-review finding (2026-07-16): the scope logic depends on
+        # os.path.realpath normalizing a SYMLINKED cwd; a refactor to abspath
+        # would break symlinked-worktree repos while the rest of the suite
+        # stays green. This pins the realpath behavior.
+        link = self.tmp.parent / f"link-{self.tmp.name}"
+        import os
+        os.symlink(self.tmp, link)
+        try:
+            res = _git_checkpoint_on_acceptance(
+                "t", "slice-1", {"title": "t", "owned_scope": ["owned.py"]}, str(link))
+            self.assertEqual(res["status"], "committed", res)
+            committed = _git(self.tmp, "show", "--name-only", "--format=", "HEAD").split()
+            self.assertEqual(committed, ["owned.py"])
+            self.assertIn("unrelated.py", _git(self.tmp, "status", "--short"))
+        finally:
+            link.unlink(missing_ok=True)
+
 
 if __name__ == "__main__":
     unittest.main()
