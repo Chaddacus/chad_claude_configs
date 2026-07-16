@@ -76,6 +76,18 @@ class ReviewerAckGateTest(unittest.TestCase):
         bad = {"views": {"governance": {"reviewer_ack": {"at": "t"}}}}
         self.assertFalse(rt.validate_reviewer_ack(bad, "R3")["valid"])
 
+    def test_content_free_ack_rejected(self) -> None:
+        # Reviewer finding (2026-07-16): an ack row with empty ref must NOT
+        # satisfy the gate — it enforces "a reviewer reviewed THIS".
+        empty_ref = {"views": {"governance": {"reviewer_ack": {
+            "acked_by": "reviewer", "ref": "   ", "at": "2026-07-16T00:00:00Z"}}}}
+        self.assertFalse(rt.validate_reviewer_ack(empty_ref, "R3")["valid"])
+        tid = _make_track(self.tmp, "ack gate empty ref", "R3")
+        with self.assertRaises(ValueError):
+            rt.record_reviewer_ack(tid, acked_by="reviewer", ref="  ")
+        # Still blocked after the rejected record attempt.
+        self.assertEqual(rt.dispatch_track(tid)["reason"], "missing_reviewer_ack")
+
 
 if __name__ == "__main__":
     unittest.main()

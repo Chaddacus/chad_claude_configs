@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 import auto_runtime_common as rt
 import outer_loop_driver as cp6
 from slice_executor import ExecutorResult
+from static_gates import BannedFinding, GateResult
 
 
 def _git(cwd, *args):
@@ -142,6 +143,29 @@ class TestLoopWithFakeExecutor(unittest.TestCase):
         # S2: summary carries the review span for the post-track reviewer pass.
         self.assertEqual(summary["base_sha"], head_before)
         self.assertEqual(summary["final_sha"], head_before)  # fake executor never moves HEAD
+
+    def test_gate_warnings_surface_in_summary_and_events(self):
+        # Review remediation (2026-07-16): warning_findings must have a
+        # consumer — accepted slices carry them into results + on_event.
+        tmp = Path(tempfile.mkdtemp(prefix="cp6warn-"))
+        _init_repo(tmp, {"seed.txt": "x\n"})
+        tid = _make_track(tmp, "cp6 gate warnings", [("slice-1", "true")])
+        gate = GateResult(ok=True, stage="done", warning_findings=[
+            BannedFinding(path="app.py", lineno=7, pattern_name="todo_marker",
+                          rationale="TODO/FIXME marker in added lines", source="regex"),
+        ])
+
+        def fake(*, main_repo, spec):
+            return ExecutorResult(ok=True, stage="done", new_head_sha="sha", gate_result=gate)
+
+        events: list[dict] = []
+        summary = cp6.run_track(track_id=tid, main_repo=tmp, execute_fn=fake,
+                                sleep=lambda *_: None, max_slices=5,
+                                on_event=events.append)
+        accepted = [r for r in summary["results"] if r.get("result") == "accepted"]
+        self.assertEqual(len(accepted), 1)
+        self.assertEqual(accepted[0]["gate_warnings"], ["app.py:7 todo_marker"])
+        self.assertTrue(any(e.get("event") == "gate_warnings" for e in events))
 
     def test_default_verify_fallback_accepts_slice_without_explicit_verify(self):
         tmp = Path(tempfile.mkdtemp(prefix="cp6defv-"))

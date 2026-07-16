@@ -253,10 +253,22 @@ def run_track(
             with rt.TrackLock(track_id):
                 upd = rt.update_node_state(track_id, slice_id, "accepted",
                                            evidence_refs=evidence, acceptance_source="cp6_outer_loop")
-            results.append({"iteration": i, "slice_id": slice_id,
-                            "result": "accepted" if not upd.get("rejected") else "accept_rejected",
-                            "attempts": outcome.attempts, "new_head_sha": r.new_head_sha,
-                            "reject_reason": upd.get("reason")})
+            entry = {"iteration": i, "slice_id": slice_id,
+                     "result": "accepted" if not upd.get("rejected") else "accept_rejected",
+                     "attempts": outcome.attempts, "new_head_sha": r.new_head_sha,
+                     "reject_reason": upd.get("reason")}
+            # Surface CP3's report-only findings (TODO markers, docstring-only
+            # bodies, env-test branches) so the tier has a consumer: they ride
+            # the summary the supervisor reads and narrate via on_event.
+            warns = getattr(getattr(r, "gate_result", None), "warning_findings", None) or []
+            if warns:
+                entry["gate_warnings"] = [
+                    f"{w.path}:{w.lineno} {w.pattern_name}" for w in warns[:20]
+                ]
+                if on_event is not None:
+                    on_event({"event": "gate_warnings", "slice_id": slice_id,
+                              "warnings": entry["gate_warnings"]})
+            results.append(entry)
         else:
             r = outcome.final_result
             stage = r.stage if r else "?"

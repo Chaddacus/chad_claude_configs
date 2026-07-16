@@ -275,7 +275,8 @@ def main() -> None:
     p = sub.add_parser("record-ack", help="Record reviewer's sprint-contract ack (R3/R4 dispatch gate)")
     p.add_argument("--track-id", required=True)
     p.add_argument("--by", default="reviewer", help="Who acked (default: reviewer)")
-    p.add_argument("--ref", help="What was acked: message id, criteria hash, or ack text")
+    p.add_argument("--ref", required=True,
+                   help="What was acked: message id, criteria hash, or ack text (required — the audit trail)")
     p.set_defaults(func=cmd_record_ack)
 
     # add-node — grow the graph to match a multi-slice plan
