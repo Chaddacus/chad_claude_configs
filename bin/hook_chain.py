@@ -15,10 +15,14 @@ Member stderr passes through untouched (advisory surface). A member that
 exits 2 (blocking error) makes the chain exit 2 after all members have run,
 preserving each member's chance to record telemetry.
 
-Members keep their own should_run() profile gating — consolidation changes
-the process model, not the policy. Deterministic ordering is a feature: the
-gate members run after telemetry members, so checkpoints fire even when a
-gate blocks (stop_gate.py's documented intent, previously best-effort).
+Profile gating: only SELF-GATING members (those calling should_run(), see
+hook_profile.PROFILES) respond to profiles; the rest — stop_gate,
+completion_gate, product_truth_auto_dispatch, replan/self-merge checks,
+telemetry, recorders — run in every profile by design (2026-07-16 audit H5
+made this explicit). Consolidation changes the process model, not the
+policy. Deterministic ordering is a feature: the gate members run after
+telemetry members, so checkpoints fire even when a gate blocks
+(stop_gate.py's documented intent, previously best-effort).
 
 Usage: hook_chain.py --chain {stop|post-edit|post-bash|post-failure}
 """

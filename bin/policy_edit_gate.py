@@ -298,6 +298,83 @@ def _pointer_block_if_new_danglers(target_path: Path, current: str, proposed: st
     return 2
 
 
+def review_queue(archive: bool = False) -> int:
+    """Operator CLI: triage the async-allow proposal queue (2026-07-16 audit M6).
+
+    The async path records every allowed policy edit as a queue proposal "for
+    later batch review" — and that review step had never happened (65
+    unreviewed entries at audit time), making the gate log-only in practice.
+    This turns review into one command:
+
+        python3 policy_edit_gate.py --review-queue             # report only
+        python3 policy_edit_gate.py --review-queue --archive   # report + archive
+
+    Status per proposal, computed against the CURRENT file content:
+        APPLIED      proposed content is present in the file today
+        NOT-APPLIED  old content still present (edit was undone/never landed)
+        SUPERSEDED   neither old nor new present (later edits rewrote the area)
+        MISSING      target file no longer exists
+
+    --archive moves entries to reviewed/<utc-date>/ with a summary JSON, so
+    the queue only ever holds unreviewed items.
+    """
+    entries = sorted(QUEUE_DIR.glob("proposal-*.json")) if QUEUE_DIR.exists() else []
+    if not entries:
+        print("policy-edit-gate queue: empty")
+        return 0
+
+    rows = []
+    for path in entries:
+        try:
+            p = json.loads(path.read_text())
+        except (OSError, json.JSONDecodeError):
+            rows.append((path, "UNREADABLE", "", ""))
+            continue
+        target = p.get("target", "")
+        ti = p.get("tool_input") or {}
+        tp = Path(target)
+        if not tp.exists():
+            status = "MISSING"
+        else:
+            current = tp.read_text(errors="replace")
+            if p.get("tool_name") == "Write":
+                status = "APPLIED" if ti.get("content", "") == current else "SUPERSEDED"
+            else:
+                new_s, old_s = ti.get("new_string", ""), ti.get("old_string", "")
+                if new_s and new_s in current:
+                    status = "APPLIED"
+                elif old_s and old_s in current:
+                    status = "NOT-APPLIED"
+                else:
+                    status = "SUPERSEDED"
+        rows.append((path, status, p.get("ts", ""), target))
+
+    by_status: dict[str, int] = {}
+    for _, status, _, _ in rows:
+        by_status[status] = by_status.get(status, 0) + 1
+    print(f"policy-edit-gate queue: {len(rows)} proposal(s)  {by_status}")
+    for path, status, ts, target in rows:
+        print(f"  {status:<12} {ts[:19]:<19} {Path(target).name:<28} {path.name}")
+
+    if archive:
+        stamp = datetime.now(timezone.utc)
+        reviewed_dir = STATE_DIR / "reviewed" / stamp.strftime("%Y%m%d")
+        reviewed_dir.mkdir(parents=True, exist_ok=True)
+        summary = [{"proposal": p.name, "status": s, "ts": ts, "target": t}
+                   for p, s, ts, t in rows]
+        # Per-run filename: a second same-day archive must not overwrite the
+        # morning run's audit record (review finding, 2026-07-16). Microsecond
+        # component because two runs CAN land in the same second (the test
+        # that pins this does exactly that).
+        (reviewed_dir / f"review-summary-{stamp.strftime('%H%M%S-%f')}.json").write_text(
+            json.dumps({"reviewed_at": _now(), "entries": summary}, indent=2) + "\n")
+        for path, _, _, _ in rows:
+            shutil.move(str(path), str(reviewed_dir / path.name))
+        _log(f"REVIEW archived {len(rows)} proposal(s) -> {reviewed_dir}")
+        print(f"archived {len(rows)} -> {reviewed_dir}")
+    return 0
+
+
 def main() -> int:
     try:
         payload = json.loads(sys.stdin.read() or "{}")
@@ -411,4 +488,8 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    # Operator CLI (audit M6): triage the async-allow proposal queue.
+    # Hook invocations carry no argv, so this never interferes with gating.
+    if "--review-queue" in sys.argv:
+        sys.exit(review_queue(archive="--archive" in sys.argv))
     sys.exit(main())

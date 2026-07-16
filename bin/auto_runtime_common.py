@@ -1935,11 +1935,15 @@ def get_route_rule(route_id: str) -> dict[str, Any]:
 # Route classification
 # ---------------------------------------------------------------------------
 
-AUTH_KEYWORDS = {"auth", "login", "session", "token", "oauth", "jwt", "rbac", "permission"}
-SECURITY_KEYWORDS = {"security", "vulnerability", "cve", "xss", "injection", "csrf", "encrypt"}
-MIGRATION_KEYWORDS = {"migration", "migrate", "schema", "alter table", "drop", "rename column"}
-DEPLOY_KEYWORDS = {"deploy", "ci/cd", "pipeline", "release", "rollback"}
-
+# Risk-keyword policy moved to bin/route_classifier.py (2026-07-16, audit
+# finding H4): the sets that lived here used SUBSTRING matching ("auth" in
+# "author", "permission" in "permissions") and had drifted from the hook
+# classifier's tiered word-boundary logic — same input, different risk
+# attribution. classify_route() now delegates to the shared module.
+#
+# FILE_PATH_RE stays: _detect_ui_work and build_preflight_report use its
+# capture-group semantics (any 1-6 char extension), which is intentionally
+# broader than the classifier's extension allowlist.
 FILE_PATH_RE = re.compile(r"(?:^|\s)([a-zA-Z0-9_./-]+\.[a-zA-Z]{1,6})(?:\s|$|[,;:])")
 
 
@@ -1959,46 +1963,17 @@ def classify_route(
         rule = get_route_rule(rid)
         return _build_route_result(rule)
 
-    # Inline classification (mirrors classify_prompt.py logic)
-    task_lower = task.lower()
-    file_mentions = FILE_PATH_RE.findall(task)
-    file_count = len(file_mentions)
+    # Inline classification — delegated to the shared policy module so this
+    # runtime and the UserPromptSubmit hook can never drift apart again
+    # (2026-07-16 audit finding H4: the vendored copy here substring-matched
+    # "auth" inside "author"/"permissions" and routed read-only work to R4).
+    import route_classifier  # sibling module in bin/; local import keeps
+    #                          module load independent of classification use
 
-    touches_auth = any(kw in task_lower for kw in AUTH_KEYWORDS)
-    touches_security = any(kw in task_lower for kw in SECURITY_KEYWORDS)
-    touches_migration = any(kw in task_lower for kw in MIGRATION_KEYWORDS)
-    touches_deploy = any(kw in task_lower for kw in DEPLOY_KEYWORDS)
-    high_risk = touches_auth or touches_security or touches_migration
-
-    # Vagueness detection
-    word_count = len(task.split())
-    is_vague = word_count < 5 and file_count == 0
-
-    if is_vague:
-        route_id = "R5"
-    elif high_risk:
-        route_id = "R4"
-    elif file_count > 3 or word_count > 30:
-        route_id = "R3"
-    elif file_count <= 2 and word_count <= 15:
-        route_id = "R2"
-    elif word_count <= 8 and "?" in task:
-        route_id = "R1"
-    else:
-        route_id = "R2"
-
-    rule = get_route_rule(route_id)
+    hint = route_classifier.classify(task)
+    rule = get_route_rule(hint["route_hint"])
     result = _build_route_result(rule)
-    result["classification_evidence"] = {
-        "file_count": file_count,
-        "file_mentions": file_mentions,
-        "word_count": word_count,
-        "touches_auth": touches_auth,
-        "touches_security": touches_security,
-        "touches_migration": touches_migration,
-        "touches_deploy": touches_deploy,
-        "is_vague": is_vague,
-    }
+    result["classification_evidence"] = hint["classification_evidence"]
     return result
 
 

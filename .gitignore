@@ -39,10 +39,13 @@
 !/state/route_manifest.json
 !/state/control_plane.json
 
-# Plugins — only the enablement list, not marketplace content
+# Plugins — only the blocklist; NOT installed_plugins.json: the harness
+# continuously restamps the frontend-design entry with this repo's HEAD
+# (machine-managed cache metadata), so tracking it meant a permanently
+# dirty file churning on every commit (2026-07-16 audit I14; untracked
+# via `git rm --cached`, file stays on disk for the harness).
 !/plugins/
 /plugins/*
-!/plugins/installed_plugins.json
 !/plugins/blocklist.json
 
 # Policy — versioned policy/registry artifacts (pre-registered hypotheses,

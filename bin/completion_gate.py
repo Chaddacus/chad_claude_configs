@@ -22,10 +22,11 @@ from datetime import datetime
 
 sys.path.insert(0, os.path.join(os.environ.get("CLAUDE_HOME", os.path.expanduser("~/.claude")), "bin"))
 from hook_profile import should_run
-# Determine hook_id from --event arg
-_event = "stop" if "--event" in sys.argv and "stop" in sys.argv else "task"
-if not should_run(f"completion_gate_{_event}"):
-    sys.exit(0)
+# NOTE: the should_run() profile gate is applied inside main(), not at import
+# time. The old import-time sys.exit(0) made this module unimportable as a
+# library — the tests/ pytest suite died at COLLECTION whenever the ambient
+# profile gated this hook off (2026-07-16 audit; same footgun family as
+# classify_prompt's import-time gate).
 
 from case_file import resolve_session_id, verify_ledger_path
 
@@ -268,6 +269,13 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--event", choices=["task-completed", "stop"], required=True)
     args = parser.parse_args()
+
+    # Profile gate (moved from import time so the module stays importable).
+    # Ids: completion_gate_stop / completion_gate_task — both listed in
+    # hook_profile.PROFILES; they are DYNAMIC ids, keep them in sync there.
+    _event_id = "stop" if args.event == "stop" else "task"
+    if not should_run(f"completion_gate_{_event_id}"):
+        sys.exit(0)
 
     # Hook input arrives on stdin; session_id scopes the ledger. Without a
     # session id, skip rather than touch a shared key (2026-06-09 incident).
