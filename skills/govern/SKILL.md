@@ -180,9 +180,21 @@ LOOP:
   7. If not terminal → GOTO 1
 ```
 
-**Timeout safety:**
-- If an agent hasn't reported in 5 minutes, send a status ping via SendMessage
-- If no response after 2 pings (10 min total), mark task failed and attempt reassignment
+**Timeout safety (no-nudge policy):**
+- If an agent hasn't reported in 5 minutes, send ONE status ping via SendMessage.
+- No response after that single ping (10 min total) → the worker is DEAD to this
+  task: mark the task failed and **respawn a FRESH worker** with the stall folded
+  into its prompt ("previous worker stalled at <step>; <known cause/fix if any>").
+  Reassignment means fresh respawn — never resume-nudge the same stalled session.
+- **Hard cap: one nudge per worker per task.** A second stall by the SAME task's
+  replacement worker is a step problem, not a session problem — stop respawning
+  and fix the step (pre-authorize the command, add env determinism like
+  `CI=1 npm install --no-audit --no-fund`, or split the packet). "Nudge #3" must
+  never exist: babysitting a stalled context costs more than a clean window.
+- A stalled worker that eventually replies WITHOUT its mandatory handoff
+  artifacts still fails the truncation tripwire below — nudged-back-to-life is
+  not completion.
+- Respawns count toward the retry-policy caps below.
 - Track `noop_cycle_count` and `no_frontier_movement_cycle_count` per manifest thresholds
 
 **Truncation tripwire (handoff integrity):**
