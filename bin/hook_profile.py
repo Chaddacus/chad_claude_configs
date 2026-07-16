@@ -26,8 +26,14 @@ ROUTE_TO_PROFILE = {
 PROFILES = {
     # secret_leak_warn (security tripwire) and web_search_breaker (web-tool runaway +
     # failure-cascade guard) are enabled in every profile, same posture as pre_tool_guard.
+    #
+    # classify_prompt MUST be in every profile: it is the only writer of the
+    # route file this module reads. Excluding it from a profile deadlocks the
+    # session in that profile — an R1 classification switched to "minimal",
+    # which gated off the classifier, so the route could never change again
+    # (2026-07-16 audit finding C2, live-demonstrated).
     "minimal": {"session_startup", "notify_done", "completion_gate_stop", "pre_tool_guard",
-                "secret_leak_warn", "web_search_breaker"},
+                "secret_leak_warn", "web_search_breaker", "classify_prompt"},
     "standard": {
         "session_startup", "notify_done", "completion_gate_stop", "pre_tool_guard",
         "classify_prompt", "edit_verify_async", "completion_gate_task",

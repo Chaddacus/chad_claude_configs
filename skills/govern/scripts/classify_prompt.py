@@ -16,10 +16,15 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+# hook_profile lives in the runtime bin. CLAUDE_HOME may be overridden to
+# redirect STATE (tests isolating route_decisions.jsonl), so also add the
+# real runtime home as an import fallback rather than crashing.
 sys.path.insert(0, os.path.join(os.environ.get("CLAUDE_HOME", os.path.expanduser("~/.claude")), "bin"))
+sys.path.insert(1, os.path.expanduser("~/.claude/bin"))
 from hook_profile import should_run
-if not should_run("classify_prompt"):
-    sys.exit(0)
+# NOTE: the should_run() profile gate is applied inside main(), not at import
+# time. An import-time sys.exit(0) made this module unimportable as a library
+# (tests, the shared classifier) and killed host processes silently.
 
 # ---------------------------------------------------------------------------
 # Keyword tiers
@@ -90,9 +95,12 @@ SIMPLE_INDICATORS = {
     "translate",
 }
 
-# File path pattern
+# File path pattern. The trailing \b prevents prefix phantom-matches:
+# without it, ".json" matched inside ".jsonl", so the hook payload's
+# transcript_path counted as a file mention on EVERY prompt (2026-07-16
+# audit: file_count>=1 on 99.9% of 2,550 production rows purely from this).
 FILE_PATH_RE = re.compile(
-    r"(?:[\w./\\-]+\.(?:ts|tsx|js|jsx|py|go|rs|java|rb|css|html|json|yaml|yml|toml|md|sql|sh))"
+    r"(?:[\w./\\-]+\.(?:ts|tsx|js|jsx|py|go|rs|java|rb|css|html|json|yaml|yml|toml|md|sql|sh)\b)"
 )
 
 
@@ -417,13 +425,54 @@ def route_policy_block(result: dict) -> str:
     return ANTI_STOP_PATTERNS + "\n\n" + ANTI_OVERRUN_PATTERNS + "\n\n" + R3_R4_GOVERNANCE_GATES
 
 
-def main():
-    # Hook system passes prompt via environment variable
-    prompt = os.environ.get("CLAUDE_USER_PROMPT", "")
+def _read_hook_payload() -> tuple[str, str]:
+    """Return (prompt, session_id) for this hook invocation.
 
-    # Also try stdin as fallback for testing
-    if not prompt and not sys.stdin.isatty():
-        prompt = sys.stdin.read()
+    Claude Code delivers UserPromptSubmit input as JSON on stdin —
+    {"hook_event_name": "UserPromptSubmit", "prompt": "...", "session_id":
+    "...", "transcript_path": "...", ...} (verified against the shipped
+    v2.1.211 dispatch source). CLAUDE_USER_PROMPT is NOT a product interface;
+    it is kept only as an explicit test override.
+
+    2026-07-16 regression note: this hook previously read CLAUDE_USER_PROMPT
+    (never set by the product) and fell back to classifying the RAW stdin
+    envelope — i.e. every real prompt for months was classified as JSON text
+    (route_decisions.jsonl: zero R1 rows, 99.9% phantom file_count). Parse the
+    JSON; never classify the envelope.
+    """
+    env_prompt = os.environ.get("CLAUDE_USER_PROMPT")
+    payload_session = ""
+    prompt = ""
+    if not sys.stdin.isatty():
+        raw = sys.stdin.read()
+        if raw.strip():
+            try:
+                data = json.loads(raw)
+            except json.JSONDecodeError:
+                data = None
+            if isinstance(data, dict):
+                prompt = str(data.get("prompt") or "")
+                payload_session = str(data.get("session_id") or "")
+            elif env_prompt is None:
+                # Plain-text stdin (manual invocation / piping in a prompt).
+                prompt = raw
+    if env_prompt is not None:
+        prompt = env_prompt
+    session_id = (
+        payload_session
+        or os.environ.get("CLAUDE_CODE_SESSION_ID")
+        or os.environ.get("CLAUDE_SESSION_ID")
+        or "default"
+    )
+    return prompt, session_id
+
+
+def main():
+    # Profile gate (moved from import time so the module stays importable).
+    if not should_run("classify_prompt"):
+        return
+
+    prompt, session_id = _read_hook_payload()
 
     result = classify_prompt(prompt)
     result["deliverable_kind"] = deliverable_kind(prompt)
@@ -441,12 +490,8 @@ def main():
     result["file_count"] = file_count
     # --------------------------------------------------------------------------
 
-    # Write route to session-scoped temp file for downstream hook profile gating
-    session_id = (
-        os.environ.get("CLAUDE_CODE_SESSION_ID")
-        or os.environ.get("CLAUDE_SESSION_ID")
-        or "default"
-    )
+    # Write route to session-scoped temp file for downstream hook profile
+    # gating (session_id resolved from the hook payload, env as fallback).
     route_file = f"/tmp/claude-route-{session_id}.json"
     try:
         with open(route_file, "w") as f:
