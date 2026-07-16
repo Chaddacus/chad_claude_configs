@@ -153,6 +153,8 @@ LOOP:
      - SendMessage: packet instructions + acceptance checks + scope constraints
   4. Wait for agent completion messages
   5. On task completion:
+     - Handoff-integrity check FIRST (see "Truncation tripwire" below);
+       a result that fails it is a FAILED dispatch, not a completion
      - TaskUpdate: mark completed with evidence
      - Check reviewer_barrier_points:
        - "closure": all required packets must be reviewer-approved before closing
@@ -173,6 +175,20 @@ LOOP:
 - If an agent hasn't reported in 5 minutes, send a status ping via SendMessage
 - If no response after 2 pings (10 min total), mark task failed and attempt reassignment
 - Track `noop_cycle_count` and `no_frontier_movement_cycle_count` per manifest thresholds
+
+**Truncation tripwire (handoff integrity):**
+maxTurns truncation cuts the END of an agent's output, so a turn-capped agent
+looks like a finished one unless you check. Worker/planner/test-strategist
+handoffs are contractually required to end with the literal final line
+`HANDOFF-COMPLETE`. On any completion message:
+- Missing `HANDOFF-COMPLETE` final line, OR missing mandatory handoff artifacts
+  (worker: diff + test output + criterion mapping + `verify:<slice-id>:exit=<code>`
+  token) → treat as a FAILED dispatch. Never grade prose; never accept partial
+  artifacts as "close enough".
+- Respawn with the failure folded into the retry prompt ("your previous attempt
+  was cut off after X; resume from the last complete artifact"), under the same
+  retry policy caps below. Repeated truncation of the same packet → split the
+  packet, don't raise maxTurns first.
 
 **Retry policy:**
 - Same method: up to 2 attempts

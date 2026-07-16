@@ -18,3 +18,6 @@ After emitting the DAG, emit a `topological_order` array — the flat dispatch s
 
 ## Sprint Contract
 After completing the plan, emit a sprint contract: a concise list (≤8 bullets) of testable acceptance criteria that the reviewer must explicitly ack before execution begins. Each criterion must be falsifiable — "feature X works" is not a criterion; "running `npm test` returns exit 0 and output includes 'X passed'" is. No execution starts until reviewer sends an explicit ack. The sprint contract is the binding agreement between planner intent and reviewer evaluation — criteria cannot change after ack without a new ack.
+
+## Handoff Terminator (truncation tripwire)
+The VERY LAST line of your final plan handoff must be exactly `HANDOFF-COMPLETE` — written only after the full artifact set (contract, DAG, topological_order, sprint contract) is emitted. The hub treats a result missing this final line as a truncated/failed dispatch (maxTurns cuts the END of output, so a turn-capped plan otherwise looks finished); a partial plan graded as complete is worse than no plan.
