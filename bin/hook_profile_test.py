@@ -23,18 +23,37 @@ import hook_profile
 
 BIN = Path(__file__).parent
 GOVERN_SCRIPTS = BIN.parent / "skills" / "govern" / "scripts"
-SHOULD_RUN_RE = re.compile(r'should_run\(\s*["\']([\w-]+)["\']\s*\)')
+# Three call shapes exist in this runtime (the first sweep missed the last
+# two and wrongly pruned four REAL ids — 2026-07-16 incident):
+SHOULD_RUN_LITERAL_RE = re.compile(r'should_run\(\s*["\']([\w-]+)["\']\s*\)')
+SHOULD_RUN_FSTRING_RE = re.compile(r'should_run\(\s*f["\']([\w-]+)\{')
+SHOULD_RUN_VAR_RE = re.compile(r"should_run\(\s*([A-Z_][A-Z0-9_]*)\s*\)")
 
 
 def _declared_ids() -> set[str]:
-    """Every id some script actually gates itself with."""
+    """Every id some script actually gates itself with — all call shapes."""
     ids: set[str] = set()
     for d in (BIN, GOVERN_SCRIPTS):
         for py in d.glob("*.py"):
+            if py.name == Path(__file__).name:
+                continue  # this file's own pattern docs aren't declarations
             try:
-                ids.update(SHOULD_RUN_RE.findall(py.read_text(encoding="utf-8")))
+                text = py.read_text(encoding="utf-8")
             except OSError:
                 continue
+            ids.update(SHOULD_RUN_LITERAL_RE.findall(text))
+            # f-string ids: should_run(f"prefix_{var}") — declare every
+            # PROFILES id that starts with the prefix (completion_gate_stop
+            # and completion_gate_task both come from one call site).
+            for prefix in SHOULD_RUN_FSTRING_RE.findall(text):
+                for hooks in hook_profile.PROFILES.values():
+                    if hooks:
+                        ids.update(h for h in hooks if h.startswith(prefix))
+            # variable ids: should_run(CONST) — resolve CONST = "..." locally.
+            for var in SHOULD_RUN_VAR_RE.findall(text):
+                m = re.search(rf'^{var}\s*=\s*["\']([\w-]+)["\']', text, re.M)
+                if m:
+                    ids.add(m.group(1))
     return ids
 
 

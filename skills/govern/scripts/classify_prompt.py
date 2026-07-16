@@ -161,7 +161,9 @@ def _read_hook_payload() -> tuple[str, str]:
     (route_decisions.jsonl: zero R1 rows, 99.9% phantom file_count). Parse the
     JSON; never classify the envelope.
     """
-    env_prompt = os.environ.get("CLAUDE_USER_PROMPT")
+    # "" means unset — callers export CLAUDE_USER_PROMPT="" to force the
+    # stdin path (pre-existing test contract).
+    env_prompt = os.environ.get("CLAUDE_USER_PROMPT") or None
     payload_session = ""
     prompt = ""
     if not sys.stdin.isatty():

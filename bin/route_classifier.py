@@ -259,8 +259,16 @@ def classify(text: str) -> dict:
 
     is_simple = any(text_lower.startswith(ind) for ind in SIMPLE_INDICATORS)
     has_imperative = bool(IMPLEMENTATION_IMPERATIVE_RE.search(text))
-    is_vague = word_count < 5 and file_count == 0 and not is_simple
     broad_feature = is_broad_feature_prompt(text)
+    # Vague means SIGNAL-FREE, not merely short: a 4-word prompt naming a
+    # risk topic ("Audit the authentication middleware.") routes to its risk
+    # lane — those lanes resolve ambiguity via planning gates. R5 is for
+    # prompts we cannot even pick a lane for ("fix it", "make it faster").
+    is_vague = (
+        word_count < 5 and file_count == 0 and not is_simple
+        and not touches_deploy and not broad_feature
+        # high_risk is checked at the routing step below (order: risk beats vague)
+    )
 
     def _result(route: str, governance: bool, reason: str) -> dict:
         return {
@@ -277,18 +285,18 @@ def classify(text: str) -> dict:
     if text_lower.startswith("/govern"):
         return _result("R3", True, "explicit /govern invocation")
 
-    # R1 — question carve-out (M7): a definitional/simple question with no
-    # implementation imperative is a lookup, even when it names risk topics
-    # ("what is a jwt?"). With an imperative ("show me how to fix login") it
-    # falls through to the risk paths.
-    if is_simple and not has_imperative and file_count == 0:
+    # R1 — simple questions. Two arms:
+    #  - no risk topics: R1 regardless of imperative-shaped NOUNS ("how does
+    #    the build system work?" — "build" is a noun here, not an order);
+    #  - risk topics named (M7 carve-out): R1 only when there is NO
+    #    implementation imperative — "what is a jwt?" is a lookup, but
+    #    "what is the fastest way to fix the login bug" falls through to R4.
+    if is_simple and file_count == 0 and (not high_risk or not has_imperative):
         return _result("R1", False, "simple factual query")
 
-    # R5 — too vague to route ("fix auth", "make it faster"): clarify first.
-    if is_vague:
-        return _result("R5", True, f"ambiguous/underspecified ({word_count} words)")
-
-    # R4 — high-risk keywords.
+    # R4 — high-risk keywords (risk beats vague: the risk lanes carry their
+    # own ambiguity resolution, and losing the R4 flag on a terse auth prompt
+    # would under-gate it).
     if high_risk:
         reason_parts = []
         if touches_auth:
@@ -302,6 +310,11 @@ def classify(text: str) -> dict:
     # R3 — broad feature/workflow work requires planning even without files.
     if broad_feature:
         return _result("R3", True, "broad feature/workflow implementation")
+
+    # R5 — signal-free AND underspecified ("fix it", "make it faster"):
+    # clarify first, then the disambiguated prompt reclassifies normally.
+    if is_vague:
+        return _result("R5", True, f"ambiguous/underspecified ({word_count} words)")
 
     # R2 — small scope, no risk; long/multi-file prompts bump to R3.
     if file_count <= 2 and not touches_deploy:

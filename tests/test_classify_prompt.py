@@ -72,7 +72,13 @@ class TestRouteClassification:
         assert result["governance_recommended"] is True
 
     def test_short_no_files_R2(self):
+        # Contract change 2026-07-16 (shared route_classifier): R5 became
+        # reachable, and a <5-word implementation ask with no files and no
+        # risk/feature signal is now "clarify first" rather than blind R2.
         result = cp_module.classify_prompt("add a button")
+        assert result["route_hint"] == "R5"
+        # A minimally-specified version routes R2 as before.
+        result = cp_module.classify_prompt("add a save button to the settings form")
         assert result["route_hint"] == "R2"
         assert result["governance_recommended"] is False
 
@@ -96,7 +102,13 @@ class TestRouteClassification:
         assert result["route_hint"] == "R3"
 
     def test_simple_indicator_overridden_by_risk(self):
+        # Contract change 2026-07-16 (audit finding M7): a definitional
+        # question naming a risk topic is a LOOKUP — "what is CSRF?" routes
+        # R1. Risk only overrides the simple indicator when the question
+        # carries an implementation imperative.
         result = cp_module.classify_prompt("what is CSRF?")
+        assert result["route_hint"] == "R1"
+        result = cp_module.classify_prompt("what is the way to fix our CSRF handling?")
         assert result["route_hint"] == "R4"
         assert "security" in result["reason"]
 
@@ -273,6 +285,9 @@ class TestOutputContract:
         assert "route_hint=" in context
 
     def test_env_var_input(self, run_hook):
+        # Risk beats vague (2026-07-16 shared route_classifier): a terse
+        # prompt naming an auth-strong topic still routes R4 — R5 is reserved
+        # for signal-free prompts ("fix it", "make it faster").
         result = run_hook(
             CLASSIFY_PROMPT,
             env={"CLAUDE_USER_PROMPT": "add JWT authentication"},
@@ -280,6 +295,16 @@ class TestOutputContract:
         parsed = json.loads(result["stdout"].strip())
         context = parsed["hookSpecificOutput"]["additionalContext"]
         assert "route_hint=R4" in context
+
+    def test_signal_free_short_prompt_is_r5(self, run_hook):
+        # R5 became reachable 2026-07-16 (it never was from this hook).
+        result = run_hook(
+            CLASSIFY_PROMPT,
+            env={"CLAUDE_USER_PROMPT": "make it faster"},
+        )
+        parsed = json.loads(result["stdout"].strip())
+        context = parsed["hookSpecificOutput"]["additionalContext"]
+        assert "route_hint=R5" in context
 
     def test_stdin_fallback(self, run_hook):
         # Clear the env var so the script falls back to stdin

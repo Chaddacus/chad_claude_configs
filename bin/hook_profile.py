@@ -32,7 +32,14 @@ ROUTE_TO_PROFILE = {
 
 PROFILES = {
     # Self-gating scripts only — each id below has a script calling
-    # should_run("<id>"):
+    # should_run with it. CAUTION: two call shapes are DYNAMIC and easy to
+    # miss in a grep for should_run("<literal>"):
+    #   completion_gate.py       -> should_run(f"completion_gate_{_event}")
+    #                               (ids completion_gate_stop / _task)
+    #   self_merge_check.py      -> should_run(HOOK_PROFILE_ID)
+    #   replan_evidence_check.py -> should_run(HOOK_PROFILE_ID)
+    # hook_profile_test.py scans all three shapes; keep it that way.
+    #
     #   classify_prompt   — the route-file writer; MUST be in every profile.
     #                       Excluding it deadlocks the session in that profile:
     #                       an R1 classification switched to "minimal", gated
@@ -40,20 +47,20 @@ PROFILES = {
     #                       change again (audit C2, live-demonstrated).
     #   pre_tool_guard, secret_leak_warn, web_search_breaker — safety
     #                       tripwires, enabled in every profile.
-    #   edit_verify_async, subagent_verify, tool_failure_context — governance
-    #                       verification, disabled in minimal.
     #   what_would_chad_do — self-gates but currently unwired (companion_stop
     #                       has no hook registration); id kept for rewiring.
-    # Phantom ids removed 2026-07-16 (audit H5): session_startup, notify_done,
-    # completion_gate_stop/_task, codex_review_gate, replan_evidence_check,
-    # self_merge_check — no script checks them (codex_review_gate.py never
-    # existed), so listing them gated nothing.
+    # True phantom ids removed 2026-07-16 (audit H5): session_startup,
+    # notify_done, codex_review_gate — no script gates itself with them
+    # (codex_review_gate.py never existed; session_startup/notify_done are
+    # ungated python/bash hooks).
     "minimal": {"pre_tool_guard", "secret_leak_warn", "web_search_breaker",
-                "classify_prompt"},
+                "classify_prompt", "completion_gate_stop"},
     "standard": {
         "classify_prompt", "pre_tool_guard", "secret_leak_warn",
         "web_search_breaker", "edit_verify_async", "subagent_verify",
         "tool_failure_context", "what_would_chad_do",
+        "completion_gate_stop", "completion_gate_task",
+        "replan_evidence_check", "self_merge_check",
     },
     "strict": None,  # None = all hooks enabled
 }
