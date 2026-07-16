@@ -22,8 +22,8 @@ Execute a development goal continuously. Plan it, implement it, test it, fix it,
 
 | Flag | Effect |
 |------|--------|
-| (none) | Lightweight plan + single-lane autonomous loop, Sonnet |
-| `--heavy` | Full planning-gate + sprint contract + reviewer ack before execution |
+| (none) | Lightweight plan + autonomous loop, Sonnet. Single-slice → inline; **≥2 slices → CP6 fresh-worker backend** (see Phase 2 routing) |
+| `--heavy` | Full planning-gate + sprint contract + reviewer ack before execution; **executes via the CP6 fresh-worker backend** by default |
 | `--local-worker` | Delegate slice execution to local goose/qwen (LM Studio); Claude plans + reviews. Replaces former `/orchestrate-local`. See Phase 2 (--local-worker) below. |
 | `--fresh-worker` | Delegate each slice to a FRESH `claude --print` worker in an isolated worktree via the CP6 outer-loop driver — clean context per slice, supervisor-decides-done on verifier evidence. See Phase 2 (--fresh-worker) below. |
 | `--issue <url>` | Treat the URL as a GitHub issue; fetch and parse it into the goal, then drive. Replaces former `/fix-issue`. See Phase 0 (--issue) below. |
@@ -175,6 +175,16 @@ Files this flag uses: `~/.claude/bin/outer_loop_driver.py` (CP6), `slice_retry.p
 ---
 
 ### Phase 2 — Autonomous Execution Loop
+
+**Execution backend (conditional default) — decide BEFORE running the inline loop below:**
+- `--local-worker` set → goose path (Phase 2 (--local-worker)).
+- `--fresh-worker` set, **OR `--heavy`, OR the plan decomposed into ≥2 slices** →
+  CP6 fresh-claude-per-slice path (Phase 2 (--fresh-worker)). This is the **default
+  backend for `--heavy` and multi-slice work**: context accumulation is exactly where
+  the inline loop derails, and CP6 gives each slice a clean worker + supervisor-decides-done.
+  Requires the standing-worker auth rule (see that section); if it isn't enabled, fall
+  back to the inline loop below and note the fallback in one line.
+- otherwise (light, single-slice, no flag) → the inline loop below (unchanged).
 
 **Do not stop between steps. Do not report mid-loop. Surface only genuine blockers.**
 
