@@ -33,11 +33,31 @@ Gates
    changes, only lines that the diff ADDED are in scope (computed via
    per-file `git diff -U0 [-M] HEAD`).
 
+3. **Stub bodies (AST, .py)**: a function whose ENTIRE body (after an
+   optional docstring) is `pass`, `...`, or `raise NotImplementedError`
+   is unimplemented work pretending to be done. Blocked when the
+   function's line range intersects the diff's added lines (so gutting
+   an existing function into a stub is caught too). Exempt: functions
+   decorated `@abstractmethod`/`@overload` and methods of Protocol
+   classes — those bodies are stubs by design.
+
+4. **Cheat/stub line patterns (regex, all text files)**: scans the ADDED
+   lines of every changed text file (not just .py):
+   - hard-fail: `todo!()`/`unimplemented!()` (Rust), "not implemented"
+     throws (JS/TS), and — in TEST files only — newly added skip/only/
+     xfail annotations (`it.skip`, `.only(`, `@pytest.mark.skip[if]`,
+     `@pytest.mark.xfail`, `pytest.skip(`, `skipTest(`) which neuter the
+     verification the pipeline's acceptance rests on.
+   - report-only (`GateResult.warning_findings`, never blocks):
+     TODO/FIXME/XXX markers, `NODE_ENV === "test"` branches, and
+     docstring-only function bodies.
+
 Out of scope
 ------------
 - Type checks (mypy/pyright), style (black/ruff), test coverage.
 - Project-specific patterns; CP3 enforces only universal anti-patterns.
-- Languages other than Python.
+- AST-level checks for languages other than Python (non-Python files get
+  the added-line regex pass only).
 - Dynamic dispatch through `getattr` / strings (e.g.,
   `getattr(__builtins__, "eval")(...)`). A driver-owned gate that
   rejected those would have unacceptable false-positive rates. Document
@@ -90,11 +110,174 @@ _BANNED_NAMES: Dict[str, Tuple[str, str]] = {
     "__import__": ("dunder_import", "__import__() bypasses static import analysis"),
 }
 
-# NOTE: A regex pass was tried in CP3 R1 alongside the AST visitor. It
-# was dropped because (a) the AST is comprehensive for the patterns we
-# care about and (b) regex on raw source generates false positives like
-# `def eval(self):` matching `eval(`. The AST visitor below is the
-# single authoritative check.
+# NOTE: A regex pass was tried in CP3 R1 alongside the AST visitor for
+# the BANNED-BUILTIN checks and dropped (AST is comprehensive there and
+# regex false-positives on `def eval(self):`). The regex layer below is
+# a DIFFERENT concern: stub/cheat line patterns that have no Python AST
+# shape (Rust macros, JS throws, test-skip annotations) scanned over the
+# diff's added lines only — a scope where false positives are rare and
+# a retry with feedback is cheap.
+
+
+# --- Stub / cheat detection tables (S1, fleet-hardening) ---------------
+
+# Test-file detection for patterns that only make sense in tests (skip/
+# only annotations). Mirrors the conventions test-strategist enforces.
+_TEST_PATH_RE = re.compile(
+    r"(^|/)(tests?|__tests__)/"
+    r"|(^|/)conftest\.py$"
+    r"|(^|/)test_[^/]+\.py$"
+    r"|_test\.py$"
+    r"|\.(test|spec)\.[cm]?[jt]sx?$"
+    r"|_test\.go$"
+    r"|_spec\.rb$"
+)
+
+# (compiled_pattern, pattern_name, rationale, test_files_only)
+_HARD_LINE_PATTERNS: List[Tuple[re.Pattern, str, str, bool]] = [
+    (re.compile(r"\btodo!\s*\("), "rust_todo_macro",
+     "todo!() placeholder left in added code", False),
+    (re.compile(r"\bunimplemented!\s*\("), "rust_unimplemented_macro",
+     "unimplemented!() placeholder left in added code", False),
+    (re.compile(r"throw\s+new\s+Error\s*\(\s*['\"](?:not\s+implemented|unimplemented|todo)", re.I),
+     "js_not_implemented_throw", "'not implemented' throw left in added code", False),
+    (re.compile(r"\b(?:it|test|describe|suite)\s*\.\s*only\s*\("), "test_only_added",
+     "focused test (.only) neuters the rest of the suite", True),
+    (re.compile(r"\b(?:it|test|describe|suite)\s*\.\s*skip\s*\("), "test_skip_added",
+     "skipped test added — verification neutered", True),
+    (re.compile(r"\bx(?:it|describe)\s*\("), "test_skip_added",
+     "xit/xdescribe skipped test added — verification neutered", True),
+    (re.compile(r"@pytest\.mark\.(?:skip|skipif|xfail)\b"), "pytest_skip_added",
+     "pytest skip/xfail added — verification neutered", True),
+    (re.compile(r"@unittest\.skip"), "unittest_skip_added",
+     "unittest skip added — verification neutered", True),
+    (re.compile(r"\bpytest\.skip\s*\(|\bskipTest\s*\("), "runtime_skip_added",
+     "runtime test-skip call added — verification neutered", True),
+]
+
+# Report-only: recorded in GateResult.warning_findings, never blocks.
+_WARNING_LINE_PATTERNS: List[Tuple[re.Pattern, str, str, bool]] = [
+    (re.compile(r"\b(?:TODO|FIXME|XXX)\b"), "todo_marker",
+     "TODO/FIXME marker in added lines", False),
+    (re.compile(r"NODE_ENV\s*===?\s*['\"]test['\"]"), "node_env_test_branch",
+     "test-env conditional in added code — check it isn't a verification bypass", False),
+]
+
+# Decorators that legitimately produce stub-shaped bodies.
+_STUB_EXEMPT_DECORATORS = {"abstractmethod", "overload"}
+
+
+def _decorator_tail(dec: ast.expr) -> str:
+    """Last attribute segment of a decorator expression: `abc.abstractmethod`
+    -> 'abstractmethod', `overload` -> 'overload', `foo()` -> 'foo'."""
+    if isinstance(dec, ast.Call):
+        return _decorator_tail(dec.func)
+    if isinstance(dec, ast.Attribute):
+        return dec.attr
+    if isinstance(dec, ast.Name):
+        return dec.id
+    return ""
+
+
+def _base_is_protocol(base: ast.expr) -> bool:
+    """True for bases spelled Protocol / typing.Protocol / Protocol[T]."""
+    if isinstance(base, ast.Subscript):
+        return _base_is_protocol(base.value)
+    if isinstance(base, ast.Attribute):
+        return base.attr == "Protocol"
+    if isinstance(base, ast.Name):
+        return base.id == "Protocol"
+    return False
+
+
+def _raises_not_implemented(stmt: ast.Raise) -> bool:
+    exc = stmt.exc
+    if isinstance(exc, ast.Call):
+        exc = exc.func
+    return isinstance(exc, ast.Name) and exc.id in ("NotImplementedError", "NotImplemented")
+
+
+def _walk_ast_stubs(tree: ast.AST) -> List[Tuple[int, int, str, str, bool]]:
+    """Find stub-shaped function bodies.
+
+    Returns (lineno, end_lineno, pattern_name, rationale, is_warning).
+    Hard stubs: body (docstring aside) is exactly `pass` / `...` /
+    `raise NotImplementedError`. Warning: docstring-only body.
+    Exempt: @abstractmethod/@overload functions and Protocol-class methods.
+    """
+    protocol_methods: Set[int] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef) and any(_base_is_protocol(b) for b in node.bases):
+            for sub in ast.walk(node):
+                if isinstance(sub, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    protocol_methods.add(sub.lineno)
+
+    out: List[Tuple[int, int, str, str, bool]] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        if node.lineno in protocol_methods:
+            continue
+        if any(_decorator_tail(d) in _STUB_EXEMPT_DECORATORS for d in node.decorator_list):
+            continue
+        body = list(node.body)
+        has_doc = (
+            bool(body)
+            and isinstance(body[0], ast.Expr)
+            and isinstance(body[0].value, ast.Constant)
+            and isinstance(body[0].value.value, str)
+        )
+        rest = body[1:] if has_doc else body
+        end = getattr(node, "end_lineno", None) or node.lineno
+        if not rest:
+            out.append((node.lineno, end, "docstring_only_body",
+                        "function body is only a docstring — possible stub", True))
+            continue
+        if len(rest) != 1:
+            continue
+        stmt = rest[0]
+        if isinstance(stmt, ast.Pass):
+            out.append((node.lineno, end, "stub_pass_body",
+                        "function body is only `pass` — unimplemented stub", False))
+        elif (isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Constant)
+              and stmt.value.value is Ellipsis):
+            out.append((node.lineno, end, "stub_ellipsis_body",
+                        "function body is only `...` — unimplemented stub", False))
+        elif isinstance(stmt, ast.Raise) and _raises_not_implemented(stmt):
+            out.append((node.lineno, end, "stub_not_implemented",
+                        "function body only raises NotImplementedError — unimplemented stub", False))
+    return out
+
+
+def _scan_lines_regex(
+    path_disp: str,
+    file_lines: List[str],
+    in_scope: Optional[Set[int]],
+) -> Tuple[List[Tuple[int, str, str]], List[Tuple[int, str, str]]]:
+    """Run the hard/warning line-pattern tables over the in-scope lines.
+
+    `in_scope=None` means every line (new file). Returns
+    (hard_findings, warning_findings) as (lineno, pattern_name, rationale).
+    """
+    is_test = bool(_TEST_PATH_RE.search(path_disp))
+    linenos = range(1, len(file_lines) + 1) if in_scope is None else sorted(in_scope)
+    hard: List[Tuple[int, str, str]] = []
+    warn: List[Tuple[int, str, str]] = []
+    for ln in linenos:
+        if ln < 1 or ln > len(file_lines):
+            continue
+        text = file_lines[ln - 1]
+        for pat, name, rationale, test_only in _HARD_LINE_PATTERNS:
+            if test_only and not is_test:
+                continue
+            if pat.search(text):
+                hard.append((ln, name, rationale))
+        for pat, name, rationale, test_only in _WARNING_LINE_PATTERNS:
+            if test_only and not is_test:
+                continue
+            if pat.search(text):
+                warn.append((ln, name, rationale))
+    return hard, warn
 
 
 @dataclass
@@ -111,7 +294,7 @@ class BannedFinding:
     lineno: int  # line number in POST-apply file
     pattern_name: str
     rationale: str
-    source: str  # always "ast" — regex layer was dropped in R2
+    source: str  # "ast" (banned builtins, stub bodies) or "regex" (line patterns)
 
 
 @dataclass
@@ -121,6 +304,9 @@ class GateResult:
     error: Optional[str] = None
     parse_errors: List[ParseError] = field(default_factory=list)
     banned_findings: List[BannedFinding] = field(default_factory=list)
+    # Report-only findings (TODO markers, docstring-only bodies, env-test
+    # branches). Never affect `ok`; surfaced for the supervisor to read.
+    warning_findings: List[BannedFinding] = field(default_factory=list)
     files_checked: List[str] = field(default_factory=list)
     diff_bytes_len: int = 0
     base_sha: str = ""
@@ -135,6 +321,17 @@ class _ChangedFile:
     status: str   # "A", "M", "D", "R", "C", "T", "U" (Git status letters)
     path: bytes   # post-apply path bytes
     old_path: Optional[bytes] = None  # for R/C, the pre-rename path
+
+
+@dataclass
+class _FileScan:
+    """One non-deleted changed file, read once and scoped once, consumed by
+    both the AST pass (.py) and the regex line-pattern pass (all files)."""
+    ch: _ChangedFile
+    path_disp: str
+    raw: Optional[bytes]            # None if the post-apply file couldn't be read
+    read_error: Optional[str]
+    added: Optional[Set[int]]       # git's added-line set; None = whole file (new file)
 
 
 def _name_status_z(repo: Path) -> List[_ChangedFile]:
@@ -398,122 +595,171 @@ def static_gate(
             result.error = f"failed to enumerate changes: {exc}"
             return result
 
-        # Filter to Python files we should inspect. Deletions are skipped
-        # because the file doesn't exist post-apply.
-        py_changes: List[_ChangedFile] = []
+        # Read every non-deleted changed file ONCE and compute its added-
+        # line scope ONCE. Deletions are skipped (no post-apply file).
+        # The AST pass (.py only) and the regex line-pattern pass (all
+        # text files) both consume these records.
+        scans: List[_FileScan] = []
         for ch in changes:
             if ch.status == "D":
                 continue
-            if ch.path.endswith(b".py"):
-                py_changes.append(ch)
-
-        result.files_checked = [
-            os.fsdecode(ch.path) for ch in py_changes
-        ]
-
-        # Parse each.
-        parsed_trees: List[Tuple[_ChangedFile, Optional[ast.AST], List[str]]] = []
-        for ch in py_changes:
             full_bytes = os.fsencode(str(sibling)) + b"/" + ch.path
             path_disp = os.fsdecode(ch.path)
+            raw: Optional[bytes] = None
+            read_error: Optional[str] = None
             try:
                 with open(full_bytes, "rb") as fh:
                     raw = fh.read()
             except OSError as exc:
+                read_error = str(exc)
+            if ch.status == "A":
+                added: Optional[Set[int]] = None  # brand-new file: all lines in scope
+            else:
+                try:
+                    added = _added_line_set_for_file(
+                        sibling, ch.path,
+                        old_path=(ch.old_path if ch.status in ("R", "C") else None),
+                    )
+                except SandboxError as exc:
+                    result.stage = "apply"
+                    result.error = f"failed to compute added lines: {exc}"
+                    return result
+            scans.append(_FileScan(ch=ch, path_disp=path_disp, raw=raw,
+                                   read_error=read_error, added=added))
+
+        py_scans = [s for s in scans if s.ch.path.endswith(b".py")]
+        result.files_checked = [s.path_disp for s in py_scans]
+
+        # Parse each Python file (from the cached bytes).
+        parsed_trees: List[Tuple[_FileScan, Optional[ast.AST], List[str]]] = []
+        for scan in py_scans:
+            if scan.raw is None:
                 result.parse_errors.append(
-                    ParseError(path=path_disp, message=f"read failed: {exc}", lineno=None, offset=None)
+                    ParseError(path=scan.path_disp,
+                               message=f"read failed: {scan.read_error}",
+                               lineno=None, offset=None)
                 )
-                parsed_trees.append((ch, None, []))
+                parsed_trees.append((scan, None, []))
                 continue
             try:
-                content = raw.decode("utf-8")
+                content = scan.raw.decode("utf-8")
             except UnicodeDecodeError as exc:
                 result.parse_errors.append(
                     ParseError(
-                        path=path_disp,
+                        path=scan.path_disp,
                         message=f"not valid UTF-8: {exc}",
                         lineno=None,
                         offset=None,
                     )
                 )
-                parsed_trees.append((ch, None, []))
+                parsed_trees.append((scan, None, []))
                 continue
             try:
-                tree = ast.parse(content, filename=path_disp)
+                tree = ast.parse(content, filename=scan.path_disp)
             except SyntaxError as exc:
                 result.parse_errors.append(
                     ParseError(
-                        path=path_disp,
+                        path=scan.path_disp,
                         message=str(exc.msg or "syntax error"),
                         lineno=exc.lineno,
                         offset=exc.offset,
                     )
                 )
-                parsed_trees.append((ch, None, content.split("\n")))
+                parsed_trees.append((scan, None, content.split("\n")))
                 continue
-            parsed_trees.append((ch, tree, content.split("\n")))
+            parsed_trees.append((scan, tree, content.split("\n")))
 
-        # Banned-construct inspection.
-        for ch, tree, source_lines in parsed_trees:
-            path_disp = os.fsdecode(ch.path)
-            # Compute the "in-scope lines" for THIS file.
+        # Banned-construct + stub inspection (.py, AST).
+        for scan, tree, source_lines in parsed_trees:
+            ch = scan.ch
+            path_disp = scan.path_disp
+            # Effective "in-scope lines" for the AST pass:
             # - status "A": brand-new file → all lines in scope.
-            # - status "R" or "C": only flag as full-scope if the OLD
-            #   path was non-.py (so the file effectively "becomes"
-            #   Python here). Otherwise treat as modification.
-            # - status "M" or "T" (typechange) or "R"/"C" within .py:
-            #   use added-line set from `git diff -U0`.
-            in_scope_lines: Optional[Set[int]] = None  # None = all lines
-            if ch.status == "A":
-                in_scope_lines = None
-            elif ch.status in ("R", "C"):
+            # - status "R"/"C" from a non-.py old path: the file BECOMES
+            #   Python here → whole file in scope.
+            # - otherwise: the added-line set computed in the pre-pass.
+            in_scope_lines: Optional[Set[int]] = scan.added
+            if ch.status in ("R", "C"):
                 old_is_py = ch.old_path is not None and ch.old_path.endswith(b".py")
                 if not old_is_py:
                     in_scope_lines = None  # Becoming Python — whole file in scope.
-                else:
-                    # Rename within .py: pass both paths so git pairs
-                    # them with -M and we get the real content delta,
-                    # not a full-file "added" diff.
-                    try:
-                        in_scope_lines = _added_line_set_for_file(
-                            sibling, ch.path, old_path=ch.old_path,
-                        )
-                    except SandboxError as exc:
-                        result.stage = "apply"
-                        result.error = f"failed to compute added lines: {exc}"
-                        return result
-            else:
-                try:
-                    in_scope_lines = _added_line_set_for_file(sibling, ch.path)
-                except SandboxError as exc:
-                    result.stage = "apply"
-                    result.error = f"failed to compute added lines: {exc}"
-                    return result
 
-            # AST-based findings.
-            if tree is not None:
-                for lineno, name, rationale, src in _walk_ast_banned(tree, source_lines):
-                    if in_scope_lines is None or lineno in in_scope_lines:
-                        result.banned_findings.append(
-                            BannedFinding(
-                                path=path_disp,
-                                lineno=lineno,
-                                pattern_name=name,
-                                rationale=rationale,
-                                source=src,
-                            )
+            if tree is None:
+                continue
+            for lineno, name, rationale, src in _walk_ast_banned(tree, source_lines):
+                if in_scope_lines is None or lineno in in_scope_lines:
+                    result.banned_findings.append(
+                        BannedFinding(
+                            path=path_disp,
+                            lineno=lineno,
+                            pattern_name=name,
+                            rationale=rationale,
+                            source=src,
                         )
+                    )
+            # Stub-shaped bodies: flag when the function's line RANGE
+            # intersects the added set, so gutting an existing function
+            # into `pass` is caught, not just brand-new stubs.
+            for lineno, end_lineno, name, rationale, is_warning in _walk_ast_stubs(tree):
+                if in_scope_lines is not None and not (
+                    set(range(lineno, end_lineno + 1)) & in_scope_lines
+                ):
+                    continue
+                finding = BannedFinding(
+                    path=path_disp,
+                    lineno=lineno,
+                    pattern_name=name,
+                    rationale=rationale,
+                    source="ast",
+                )
+                (result.warning_findings if is_warning
+                 else result.banned_findings).append(finding)
+
+        # Line-pattern pass (regex) over the added lines of EVERY changed
+        # text file — stubs/cheats with no Python AST shape. Files that
+        # can't be read or aren't valid UTF-8 (binaries) are skipped;
+        # unreadable .py files were already reported as parse errors.
+        for scan in scans:
+            if scan.raw is None:
+                continue
+            try:
+                file_lines = scan.raw.decode("utf-8").split("\n")
+            except UnicodeDecodeError:
+                continue  # binary — no line patterns to scan
+            hard, warn = _scan_lines_regex(scan.path_disp, file_lines, scan.added)
+            for lineno, name, rationale in hard:
+                result.banned_findings.append(
+                    BannedFinding(path=scan.path_disp, lineno=lineno,
+                                  pattern_name=name, rationale=rationale,
+                                  source="regex")
+                )
+            for lineno, name, rationale in warn:
+                result.warning_findings.append(
+                    BannedFinding(path=scan.path_disp, lineno=lineno,
+                                  pattern_name=name, rationale=rationale,
+                                  source="regex")
+                )
 
         if result.parse_errors:
             result.stage = "parse"
+            head = "; ".join(
+                f"{p.path}:{p.lineno or '?'} {p.message}" for p in result.parse_errors[:5]
+            )
             result.error = (
-                f"{len(result.parse_errors)} parse error(s) in changed Python files"
+                f"{len(result.parse_errors)} parse error(s) in changed Python files: {head}"
             )
             return result
         if result.banned_findings:
+            # Name the findings in the error so CP7's retry prompt tells the
+            # next worker WHAT was wrong, not just that something was.
             result.stage = "banned"
+            head = "; ".join(
+                f"{f.path}:{f.lineno} {f.pattern_name}" for f in result.banned_findings[:8]
+            )
+            more = (f" (+{len(result.banned_findings) - 8} more)"
+                    if len(result.banned_findings) > 8 else "")
             result.error = (
-                f"{len(result.banned_findings)} banned construct(s) introduced"
+                f"{len(result.banned_findings)} banned construct(s) introduced: {head}{more}"
             )
             return result
 

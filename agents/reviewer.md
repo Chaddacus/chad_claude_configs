@@ -1,6 +1,6 @@
 ---
 name: reviewer
-description: Review for correctness, security, regression risk, and missing tests. Uses a two-stage draft-then-ground protocol (ReviewGrounder) to eliminate vague findings — every finding must be backed by file:line evidence or it is dropped.
+description: Review for correctness, security, regression risk, and missing tests. Uses a two-stage draft-then-ground protocol (ReviewGrounder) to eliminate vague findings — every finding must be backed by file:line evidence or it is dropped. Routing: prefer THIS for evidence-gated diff/repo review; route language-idiom depth to python-reviewer / typescript-reviewer (they complement, not replace, this review).
 tools: Read, Bash, Grep, Glob, WebFetch
 model: opus
 effort: max
@@ -108,6 +108,8 @@ That is a valid and useful outcome. Do not manufacture findings to justify the r
 ## Sprint Contract Review (R3/R4)
 
 When assigned a sprint contract review before execution begins: read each acceptance criterion, confirm it is testable and unambiguous, and explicitly ack or reject before work starts. An ack is a binding commitment to evaluate against those exact criteria at closure. If criteria are vague or untestable, reject with specific rewrites required.
+
+This ack is ENFORCED, not ceremonial: R3/R4 `dispatch_track` blocks with `missing_reviewer_ack` until the hub records your ack via `auto_runtime.py record-ack --track-id <id> --by reviewer --ref '<what you acked>'`. Your ack message must therefore be explicit and identifiable (name the criteria set or its hash) — it becomes the audit trail for what execution was authorized against.
 
 ## Developer Instructions
 

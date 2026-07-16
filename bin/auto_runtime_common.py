@@ -24,6 +24,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from omni_mem_route import container_for_cwd
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -1555,16 +1557,32 @@ def _git_checkpoint_on_acceptance(
         return {"status": "skipped", "reason": "on_protected_branch", "branch": current_branch}
     title = node.get("title", node_id)[:72]
     msg = f"[auto-runtime] {node_id} accepted: {title}"
-    owned = node.get("owned_scope", [cwd])
-    for scope in owned:
-        if os.path.exists(os.path.realpath(scope)):
-            _run_git(["add", os.path.realpath(scope)], cwd, timeout=10)
+    # A checkpoint may only commit what the slice DECLARED it owns. The old
+    # default (owned_scope=[cwd]) staged the repo ROOT — on 2026-07-16 it
+    # swept 11 unrelated dirty working-tree files into a feature branch
+    # (third incident caused by this default; CP6's prompt leak was the
+    # second). Rules now: no owned_scope -> no auto-commit (the session owns
+    # its own green-boundary commits per CLAUDE.md); the repo root is never
+    # a valid scope entry; relative scopes resolve against the REPO cwd, not
+    # the process cwd; and there is no add -u fallback — that was the same
+    # sweep through another door.
+    repo_root = os.path.realpath(cwd)
+    owned: list[str] = []
+    for scope in node.get("owned_scope") or []:
+        rp = os.path.realpath(os.path.join(cwd, scope))
+        if rp == repo_root:
+            continue  # repo root is not a scope — that's the sweep
+        if not (rp + os.sep).startswith(repo_root + os.sep):
+            continue  # outside-repo paths are never stageable here
+        owned.append(rp)
+    if not owned:
+        return {"status": "skipped", "reason": "no_owned_scope"}
+    for rp in owned:
+        if os.path.exists(rp):
+            _run_git(["add", rp], cwd, timeout=10)
     rc, staged = _run_git(["diff", "--cached", "--stat"], cwd)
     if not staged.strip():
-        _run_git(["add", "-u"], cwd, timeout=10)
-        _, staged = _run_git(["diff", "--cached", "--stat"], cwd)
-        if not staged.strip():
-            return {"status": "skipped", "reason": "no_stageable_changes"}
+        return {"status": "skipped", "reason": "no_stageable_changes_in_owned_scope"}
     rc, out = _run_git(["commit", "-m", msg], cwd, timeout=30)
     if rc != 0:
         return {"status": "error", "reason": "git_commit_failed", "output": out[:500]}
@@ -1588,7 +1606,11 @@ def _omni_mem_checkpoint(
         return {"status": "skipped", "reason": "disabled"}
     workspace_id = os.path.basename(os.path.normpath(cwd)) if cwd else "global"
     cli = os.environ.get("OMNI_MEM_CLI_BIN", "omni-mem")
-    container = os.environ.get("OMNI_MEM_CONTAINER", "omni-mem")
+    # Unset -> vault routed by cwd (~/chad_personal -> omni-mem-personal, else
+    # omni-mem). Explicit "" keeps the documented local-CLI fallback.
+    container = os.environ.get("OMNI_MEM_CONTAINER")
+    if container is None:
+        container = container_for_cwd(cwd)
     args = [
         cli, "generate_checkpoint",
         "--workspaceId", workspace_id,
@@ -1652,6 +1674,50 @@ def validate_sprint_contract(node: dict[str, Any], route_id: str) -> dict[str, A
     elif len(criteria) < MIN_ACCEPTANCE_CRITERIA_R3_R4:
         missing.append(f"acceptance_criteria_below_minimum:need_{MIN_ACCEPTANCE_CRITERIA_R3_R4}_have_{len(criteria)}")
     return {"valid": len(missing) == 0, "missing": missing}
+
+
+# Track-level reviewer ack (S7 fleet-hardening). planner.md/reviewer.md always
+# CLAIMED "no execution until the reviewer acks the sprint contract" but no
+# code checked it — a dead-letter contract. This is the enforcement: R3/R4
+# dispatch blocks until an ack is recorded via `auto_runtime.py record-ack`.
+REVIEWER_ACK_KEY = "reviewer_ack"
+
+
+def validate_reviewer_ack(state: dict[str, Any], route_id: str) -> dict[str, Any]:
+    """R3/R4 gate: dispatch may not start until the sprint contract carries a
+    recorded reviewer ack. R1/R2 exempt. Pure predicate over track state.
+
+    A content-free ack does not count: `ref` must be non-empty so the gate
+    enforces "a reviewer reviewed THIS", not "an ack row exists" (reviewer
+    finding, 2026-07-16)."""
+    if route_id in ("R1", "R2"):
+        return {"valid": True}
+    ack = state.get("views", {}).get("governance", {}).get(REVIEWER_ACK_KEY)
+    if (isinstance(ack, dict) and ack.get("acked_by") and ack.get("at")
+            and str(ack.get("ref", "")).strip()):
+        return {"valid": True, "ack": ack}
+    return {"valid": False, "reason": "missing_reviewer_ack"}
+
+
+def record_reviewer_ack(track_id: str, *, acked_by: str = "reviewer", ref: str = "") -> dict[str, Any]:
+    """Record the reviewer's sprint-contract ack at track level.
+
+    `ref` is REQUIRED and must identify WHAT was acked (message id, criteria
+    hash, or the ack text) — it is the audit trail of what execution was
+    authorized against; an empty ref would let any caller rubber-stamp the
+    gate. Unblocks R3/R4 dispatch; the gate itself never mutates node state,
+    so recording the ack is the complete unblock."""
+    if not str(ref).strip():
+        raise ValueError("record_reviewer_ack: --ref is required (what was acked: "
+                         "message id, criteria hash, or ack text)")
+    td = track_dir(track_id)
+    state = _load_json(td / "objective.state.json")
+    governance = state["views"].setdefault("governance", {})
+    ack = {"acked_by": acked_by, "ref": ref, "at": now_iso()}
+    governance[REVIEWER_ACK_KEY] = ack
+    _save_json(td / "objective.state.json", state)
+    _append_event(track_id, {"event": "reviewer_ack_recorded", **ack})
+    return {"track_id": track_id, "reviewer_ack": ack}
 
 
 def phase_transition_allowed(
@@ -2569,7 +2635,8 @@ def _record_memory_lifecycle_gate(
     try:
         result = subprocess.run(
             [
-                "docker", "exec", "-i", "omni-mem", "omni-mem",
+                # Vault routed by cwd: ~/chad_personal -> omni-mem-personal, else omni-mem.
+                "docker", "exec", "-i", container_for_cwd(cwd), "omni-mem",
                 "save-memory",
                 "--title", title,
                 "--text", text,
@@ -3237,6 +3304,29 @@ def dispatch_track(track_id: str) -> dict[str, Any]:
             "reason": "missing_acceptance_criteria",
             "slice_id": slice_id,
             "contract_validation": contract_check,
+        }
+
+    # Reviewer-ack gate (S7): R3/R4 execution may not start un-acked. The
+    # node is NOT marked blocked — the gate is track-level and recoverable;
+    # recording the ack makes the very next dispatch succeed.
+    ack_check = validate_reviewer_ack(state, route_id)
+    if not ack_check["valid"]:
+        _append_event(track_id, {
+            "event": "dispatch_blocked",
+            "reason": "missing_reviewer_ack",
+            "slice_id": slice_id,
+            "route_id": route_id,
+        })
+        return {
+            "track_id": track_id,
+            "status": "blocked",
+            "reason": "missing_reviewer_ack",
+            "slice_id": slice_id,
+            "unblock": (
+                "reviewer must ack the sprint contract, then record it: "
+                f"python3 ~/.claude/bin/auto_runtime.py record-ack --track-id {track_id} "
+                "--by reviewer --ref '<what was acked>'"
+            ),
         }
 
     # Slice 1c: pre-dispatch baseline capture (no enforcement; Slice 3 acts).

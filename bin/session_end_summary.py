@@ -36,6 +36,8 @@ import sys
 from collections import Counter
 from pathlib import Path
 
+from omni_mem_route import container_for_cwd
+
 SUMMARY_DIR = Path.home() / ".claude" / "state" / "session_summaries"
 
 EDIT_TOOLS = {"Write", "Edit", "MultiEdit", "NotebookEdit"}
@@ -212,18 +214,25 @@ def _git_summary(cwd: str | None) -> dict:
     return out
 
 
-def _omni_mem_writes_since(session_started_at: datetime.datetime | None) -> dict:
-    """Best-effort query of journal + recent saves. Returns {journal: [...], memories: [...]}."""
+def _omni_mem_writes_since(
+    session_started_at: datetime.datetime | None, cwd: str | None = None
+) -> dict:
+    """Best-effort query of journal + recent saves. Returns {journal: [...], memories: [...]}.
+
+    Routes to the work or personal omni-mem vault based on the session cwd
+    (~/chad_personal -> omni-mem-personal, else omni-mem).
+    """
     out: dict[str, list[str]] = {"journal": [], "memories": []}
     if session_started_at is None:
         return out
 
     workspace = os.environ.get("OMNI_MEM_WORKSPACE_ID", "chadsimon")
+    container = container_for_cwd(cwd)
 
     def _docker_exec(*args: str) -> str:
         try:
             return subprocess.run(
-                ["docker", "exec", "omni-mem", "omni-mem", *args],
+                ["docker", "exec", container, "omni-mem", *args],
                 capture_output=True,
                 text=True,
                 timeout=8,
@@ -436,7 +445,7 @@ def main() -> int:
 
     transcript = _scan_transcript(transcript_path)
     git = _git_summary(cwd if isinstance(cwd, str) else None)
-    memory = _omni_mem_writes_since(started_at)
+    memory = _omni_mem_writes_since(started_at, cwd if isinstance(cwd, str) else None)
 
     summary = _format_summary(
         session_id=session_id,

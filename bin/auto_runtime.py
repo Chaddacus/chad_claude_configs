@@ -112,6 +112,20 @@ def cmd_update_node(args: argparse.Namespace) -> None:
     print()
 
 
+def cmd_record_ack(args: argparse.Namespace) -> None:
+    # S7: record the reviewer's sprint-contract ack; unblocks R3/R4 dispatch.
+    try:
+        with rt.TrackLock(args.track_id):
+            result = rt.record_reviewer_ack(
+                args.track_id, acked_by=args.by, ref=args.ref or "",
+            )
+    except (ValueError, KeyError, FileNotFoundError) as e:
+        print(f"record-ack: {e}", file=sys.stderr)
+        raise SystemExit(2)
+    json.dump(result, sys.stdout, indent=2, default=str)
+    print()
+
+
 def cmd_add_node(args: argparse.Namespace) -> None:
     deps = args.dependencies.split(",") if args.dependencies else None
     try:
@@ -256,6 +270,14 @@ def main() -> None:
     p.add_argument("--evidence")
     p.add_argument("--acceptance-source")
     p.set_defaults(func=cmd_update_node)
+
+    # record-ack — reviewer's sprint-contract ack (unblocks R3/R4 dispatch)
+    p = sub.add_parser("record-ack", help="Record reviewer's sprint-contract ack (R3/R4 dispatch gate)")
+    p.add_argument("--track-id", required=True)
+    p.add_argument("--by", default="reviewer", help="Who acked (default: reviewer)")
+    p.add_argument("--ref", required=True,
+                   help="What was acked: message id, criteria hash, or ack text (required — the audit trail)")
+    p.set_defaults(func=cmd_record_ack)
 
     # add-node — grow the graph to match a multi-slice plan
     p = sub.add_parser("add-node", help="Add a slice node to a track's graph")

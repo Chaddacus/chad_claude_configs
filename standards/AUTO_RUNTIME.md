@@ -24,6 +24,12 @@ the HOW. Dispatch budget values are owned by `~/.claude/bin/auto_runtime_common.
 - `R3`/`R4`: `/govern` spawns agent teams via `TeamCreate`, manages packet DAGs via `TaskCreate`, and
   enforces reviewer barriers and postflight gates.
 - `R1`/`R2`: `/govern` executes inline with lightweight or no governance overhead.
+- **Truncation tripwire (handoff integrity):** worker/planner/test-strategist handoffs must end with
+  the literal final line `HANDOFF-COMPLETE`. A dispatched-agent result missing that line or its
+  mandatory handoff artifacts is a FAILED dispatch (maxTurns truncation cuts the END of output, so a
+  turn-capped agent otherwise looks finished) — respawn under the retry policy with the failure folded
+  into the prompt; never grade prose as completion. Repeated truncation of the same packet → split the
+  packet before raising maxTurns. Full procedure: `/govern` SKILL.md Phase 3.
 - The `Stop` hook persists high-signal memory via omni-mem every 15 exchanges and at session end.
 - The `PreCompact` hook forces a full omni-mem memory dump before context compaction.
 

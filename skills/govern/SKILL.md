@@ -105,9 +105,18 @@ Skip to Phase 5 (notification).
 5. Create tasks for each packet using `TaskCreate`:
    - Set `addBlockedBy` for DAG dependencies between packets
    - Include acceptance checks in task description
-6. Enter the orchestration loop (Phase 3)
-7. At reviewer barrier points → spawn reviewer, wait for verdict
-8. On completion → postflight gates (Phase 4)
+6. **Sprint-contract ack (ENFORCED gate):** send the planner's sprint contract
+   to the reviewer; on explicit ack, record it — R3/R4 `dispatch_track` blocks
+   with `missing_reviewer_ack` until this runs:
+   ```bash
+   python3 ~/.claude/bin/auto_runtime.py record-ack --track-id <track_id> \
+       --by reviewer --ref '<criteria hash or ack message>'
+   ```
+   Reviewer rejects → planner revises criteria → re-ack. Never record an ack
+   the reviewer didn't give.
+7. Enter the orchestration loop (Phase 3)
+8. At reviewer barrier points → spawn reviewer, wait for verdict
+9. On completion → postflight gates (Phase 4)
 
 #### R4 — Conservative Bounded Swarm
 
@@ -153,6 +162,8 @@ LOOP:
      - SendMessage: packet instructions + acceptance checks + scope constraints
   4. Wait for agent completion messages
   5. On task completion:
+     - Handoff-integrity check FIRST (see "Truncation tripwire" below);
+       a result that fails it is a FAILED dispatch, not a completion
      - TaskUpdate: mark completed with evidence
      - Check reviewer_barrier_points:
        - "closure": all required packets must be reviewer-approved before closing
@@ -169,10 +180,36 @@ LOOP:
   7. If not terminal → GOTO 1
 ```
 
-**Timeout safety:**
-- If an agent hasn't reported in 5 minutes, send a status ping via SendMessage
-- If no response after 2 pings (10 min total), mark task failed and attempt reassignment
+**Timeout safety (no-nudge policy):**
+- If an agent hasn't reported in 5 minutes, send ONE status ping via SendMessage.
+- No response after that single ping (10 min total) → the worker is DEAD to this
+  task: mark the task failed and **respawn a FRESH worker** with the stall folded
+  into its prompt ("previous worker stalled at <step>; <known cause/fix if any>").
+  Reassignment means fresh respawn — never resume-nudge the same stalled session.
+- **Hard cap: one nudge per worker per task.** A second stall by the SAME task's
+  replacement worker is a step problem, not a session problem — stop respawning
+  and fix the step (pre-authorize the command, add env determinism like
+  `CI=1 npm install --no-audit --no-fund`, or split the packet). "Nudge #3" must
+  never exist: babysitting a stalled context costs more than a clean window.
+- A stalled worker that eventually replies WITHOUT its mandatory handoff
+  artifacts still fails the truncation tripwire below — nudged-back-to-life is
+  not completion.
+- Respawns count toward the retry-policy caps below.
 - Track `noop_cycle_count` and `no_frontier_movement_cycle_count` per manifest thresholds
+
+**Truncation tripwire (handoff integrity):**
+maxTurns truncation cuts the END of an agent's output, so a turn-capped agent
+looks like a finished one unless you check. Worker/planner/test-strategist
+handoffs are contractually required to end with the literal final line
+`HANDOFF-COMPLETE`. On any completion message:
+- Missing `HANDOFF-COMPLETE` final line, OR missing mandatory handoff artifacts
+  (worker: diff + test output + criterion mapping + `verify:<slice-id>:exit=<code>`
+  token) → treat as a FAILED dispatch. Never grade prose; never accept partial
+  artifacts as "close enough".
+- Respawn with the failure folded into the retry prompt ("your previous attempt
+  was cut off after X; resume from the last complete artifact"), under the same
+  retry policy caps below. Repeated truncation of the same packet → split the
+  packet, don't raise maxTurns first.
 
 **Retry policy:**
 - Same method: up to 2 attempts

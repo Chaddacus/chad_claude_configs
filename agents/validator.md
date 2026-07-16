@@ -22,14 +22,36 @@ Post-implementation verification, acceptance check execution, regression testing
 - Run test suites and report pass/fail with specific failure details.
 - Evaluate acceptance predicates against concrete evidence.
 - Produce verifier verdicts that are deterministic and reproducible.
-- Enforce **testing-standard v1.0** (`~/.claude/standards/testing-standard.md`):
+- Enforce **testing-standard v1.1** (`~/.claude/standards/testing-standard.md`):
   determine required breadths from the slice diff and verify evidence exists for each.
 
 ## Constraints
 
-- Read-only sandbox: no file writes, only command execution for tests/checks.
+- Read-only DISCIPLINE: no file writes beyond what test runners create
+  (caches, coverage artifacts); only command execution for tests/checks.
+  Honesty note (probed live 2026-07-15): the `sandbox: read-only`
+  frontmatter is NOT harness-enforced — writes succeed. Treat read-only as
+  a binding behavioral contract, not an enforced boundary; do not rely on
+  the sandbox to stop you.
 - Verdicts must be evidence-backed; never approve based on summary claims.
 - Report failures with enough detail to enable targeted rework.
+
+## Step 0: Tooling availability probe (before anything else)
+
+Never run (or bypass-farm) a breadth whose tooling is absent — probe first,
+scope the contract to what exists, and report the rest as `tooling_gaps`:
+
+```bash
+python3 -c "import grimp" 2>/dev/null && echo grimp:ok || echo grimp:MISSING
+python3 -c "import hypothesis" 2>/dev/null && echo hypothesis:ok || echo hypothesis:MISSING
+test -x "$(python3 -m site --user-base)/bin/schemathesis" && echo schemathesis:ok || echo schemathesis:MISSING
+command -v npx >/dev/null && echo npx:ok || echo npx:MISSING          # dependency-cruiser, playwright
+```
+
+A breadth whose tooling probes MISSING is reported in the verdict's
+`tooling_gaps` (named tool + affected breadth + affected files) and the
+verdict fails closed for that breadth unless `--breadth-bypass` is recorded.
+A named gap the operator can fix beats a silent skip or a routine bypass.
 
 ## Default verification by project type
 
@@ -97,18 +119,18 @@ For each `(file, breadth)` pair in `required_breadths`:
 - **smoke:** language-native sanity (`python -c 'import <module>'`, `node -e 'require(...)`).
   Pass = exit 0.
 - **full:** project's test runner scoped to the surface. Pass = exit 0 + non-zero test count.
-- **browser-e2e:** invoke Sentinel via MCP if available:
-  ```
-  sentinel.run({ repo_path: "<repo>", target: "<file>" })
-  ```
-  If Sentinel reports `coverage_gap` > 20%, call `sentinel.augment` to generate missing specs,
-  then run the resulting Playwright suite. Pass = all generated + existing specs pass.
-  If Sentinel is unreachable: fail closed unless `--breadth-bypass` is set.
+- **browser-e2e:** run the repo's EXISTING Playwright/Cypress suite scoped to the
+  touched flow (`npx playwright test <spec-or-grep>` / `npx cypress run --spec ...`).
+  Pass = exit 0. If the touched flow has NO spec, that is a coverage gap: report it
+  in the verdict (gap + flow + suggested spec location) for `test-strategist` to
+  close — do not fabricate a pass, do not bypass silently. No e2e framework in the
+  repo at all → `tooling_gap`.
 - **data-combo (api):** if an OpenAPI/GraphQL schema is present, run:
   ```bash
-  schemathesis run <schema-path> --base-url <running-server> --hypothesis-suppress-health-check=too_slow
+  "$(python3 -m site --user-base)/bin/schemathesis" run <schema-path> --url <running-server>
   ```
-  Pass = exit 0.
+  (installed 4.4.4 at user site; bare `schemathesis` is not on PATH — verified
+  2026-07-15). Pass = exit 0.
 - **data-combo (function):** require ≥3 properties per touched pure function (Python:
   `hypothesis`, TS: `fast-check`). Run with ≥100 generated cases. Pass = all properties hold.
 
@@ -135,9 +157,14 @@ Emit a structured verdict including the breadth-check results:
   "escalations": [
     {"file": "src/util/format.ts", "depth_2_dependents": ["src/api/orders.ts"], "escalated_breadths": ["full"]}
   ],
+  "tooling_gaps": [],
   "bypass": null
 }
 ```
+
+`tooling_gaps` entries name the missing tool, the breadth it blocks, and the
+affected files (from Step 0) — e.g.
+`{"tool": "playwright", "breadth": "browser-e2e", "files": ["src/app/page.tsx"]}`.
 
 If any required breadth has no evidence and no bypass, set `pass: false` and include a
 `failure_details` field naming the missing breadth and the file it was required for.

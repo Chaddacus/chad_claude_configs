@@ -48,6 +48,8 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+from omni_mem_route import container_for_cwd
+
 FAILED_DISPATCH_THRESHOLD = 2  # >= this many failed Task results triggers the check
 OMNI_MEM_QUERY_LIMIT = 50      # how many journal entries to fetch
 OMNI_MEM_QUERY_TIMEOUT = 5     # seconds; query is best-effort
@@ -173,7 +175,8 @@ def _replan_journal_count(workspace_id: str, since_ts: float) -> int | None:
     try:
         result = subprocess.run(
             [
-                "docker", "exec", "omni-mem", "omni-mem", "journal_read",
+                # Vault routed by cwd: ~/chad_personal -> omni-mem-personal, else omni-mem.
+                "docker", "exec", container_for_cwd(), "omni-mem", "journal_read",
                 "--workspaceId", workspace_id,
                 "--agentName", "chad-twin",
                 "--limit", str(OMNI_MEM_QUERY_LIMIT),

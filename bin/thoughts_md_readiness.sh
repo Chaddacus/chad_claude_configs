@@ -117,17 +117,19 @@ fi
 hdr "omni-mem"
 # ----------------------------------------------------------------------------
 
-if docker ps --format '{{.Names}}' 2>/dev/null | grep -q '^omni-mem$'; then
-  ok "omni-mem container running"
+# Vault routed by cwd: ~/chad_personal -> omni-mem-personal, else omni-mem.
+OMNI_CONTAINER="$(python3 "$HOME/.claude/bin/omni_mem_route.py" 2>/dev/null || echo omni-mem)"
+if docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^${OMNI_CONTAINER}\$"; then
+  ok "$OMNI_CONTAINER container running"
   # No `omni-mem readiness` command exists. Use a real, side-effect-free call —
   # `list_domains` returns JSON quickly and proves the CLI + DB are alive.
-  if docker exec omni-mem omni-mem list_domains --workspaceId chadsimon >/dev/null 2>&1; then
-    ok "omni-mem CLI responding (list_domains ok)"
+  if docker exec "$OMNI_CONTAINER" omni-mem list_domains --workspaceId chadsimon >/dev/null 2>&1; then
+    ok "$OMNI_CONTAINER CLI responding (list_domains ok)"
   else
-    warn "omni-mem container running but CLI not responding (tried: list_domains)"
+    warn "$OMNI_CONTAINER container running but CLI not responding (tried: list_domains)"
   fi
 else
-  fail "omni-mem container not running — start via: docker start omni-mem"
+  fail "$OMNI_CONTAINER container not running — start via: docker start $OMNI_CONTAINER"
 fi
 
 # ----------------------------------------------------------------------------

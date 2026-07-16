@@ -106,7 +106,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash /Users/chadsimon/code/omni-mem/hooks/omni_mem_save_hook.sh",
+            "command": "bash /Users/chadsimon/chad_work/omni-mem/hooks/omni_mem_save_hook.sh",
             "timeout": 30
           },
           {
@@ -149,7 +149,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash /Users/chadsimon/code/omni-mem/hooks/omni_mem_precompact_hook.sh",
+            "command": "bash /Users/chadsimon/chad_work/omni-mem/hooks/omni_mem_precompact_hook.sh",
             "timeout": 30
           },
           {
@@ -461,5 +461,6 @@
   "remoteControlAtStartup": true,
   "agentPushNotifEnabled": true,
   "skipAutoPermissionPrompt": true,
-  "mcpServers": {}
+  "mcpServers": {},
+  "model": "claude-fable-5[1m]"
 }

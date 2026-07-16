@@ -670,5 +670,161 @@ class StaticGateTest(unittest.TestCase):
             shutil.rmtree(result.sibling_path, ignore_errors=True)
 
 
+class StubAndCheatGateTest(unittest.TestCase):
+    """S1 fleet-hardening: stub-body detection (AST) and cheat/stub line
+    patterns (regex) — hard tier blocks, warning tier reports only."""
+
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp(prefix="cp3s1-"))
+        self.repo = self.tmp / "main"
+        self.base_sha = _init_repo(
+            self.repo,
+            {
+                "app.py": "def foo():\n    return 1\n",
+                "impl.py": "def big():\n    x = 1\n    y = 2\n    return x + y\n",
+                "tests/test_app.py": "def test_foo():\n    assert True\n",
+                "web/app.test.ts": "test('a', () => { expect(1).toBe(1); });\n",
+            },
+        )
+        self.parent = self.tmp / "gate"
+
+    def tearDown(self) -> None:
+        subprocess.run(
+            ["git", "worktree", "prune"],
+            cwd=str(self.repo) if self.repo.exists() else self.tmp,
+            capture_output=True,
+        )
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _gate(self, mutate):
+        diff = _make_diff(self.repo, mutate)
+        return static_gate(
+            main_repo=self.repo,
+            base_sha=self.base_sha,
+            diff_bytes=diff,
+            rehearsal_parent=self.parent,
+        )
+
+    # ---- hard tier: stub bodies (AST) ---------------------------------
+
+    def test_new_pass_body_function_blocked(self) -> None:
+        result = self._gate(lambda tmp: (tmp / "new.py").write_text(
+            "def todo_later():\n    pass\n"
+        ))
+        self.assertFalse(result.ok)
+        self.assertTrue(any(f.pattern_name == "stub_pass_body" for f in result.banned_findings))
+        self.assertIn("stub_pass_body", result.error or "")
+
+    def test_gutting_existing_function_to_stub_blocked(self) -> None:
+        # Modify: existing multi-line function becomes `raise NotImplementedError`.
+        result = self._gate(lambda tmp: (tmp / "impl.py").write_text(
+            "def big():\n    raise NotImplementedError\n"
+        ))
+        self.assertFalse(result.ok)
+        self.assertTrue(any(f.pattern_name == "stub_not_implemented" for f in result.banned_findings))
+
+    def test_ellipsis_body_blocked_but_abstractmethod_exempt(self) -> None:
+        blocked = self._gate(lambda tmp: (tmp / "new.py").write_text(
+            "def later():\n    ...\n"
+        ))
+        self.assertFalse(blocked.ok)
+        self.assertTrue(any(f.pattern_name == "stub_ellipsis_body" for f in blocked.banned_findings))
+
+        exempt = self._gate(lambda tmp: (tmp / "iface.py").write_text(
+            "from abc import ABC, abstractmethod\n"
+            "class Base(ABC):\n"
+            "    @abstractmethod\n"
+            "    def run(self):\n"
+            "        ...\n"
+        ))
+        self.assertTrue(exempt.ok, f"{exempt.stage}: {exempt.error}")
+
+    def test_protocol_methods_exempt(self) -> None:
+        result = self._gate(lambda tmp: (tmp / "proto.py").write_text(
+            "from typing import Protocol\n"
+            "class Runner(Protocol):\n"
+            "    def run(self) -> None:\n"
+            "        ...\n"
+        ))
+        self.assertTrue(result.ok, f"{result.stage}: {result.error}")
+
+    def test_untouched_preexisting_stub_not_flagged(self) -> None:
+        # A stub already in the repo stays out of scope when the diff
+        # doesn't touch its line range.
+        _run(["git", "rm", "-q", "--cached", "impl.py"], cwd=self.repo)  # no-op guard
+        _run(["git", "add", "impl.py"], cwd=self.repo)
+        # Seed a stub into the repo at HEAD.
+        (self.repo / "legacy.py").write_text("def old_stub():\n    pass\n")
+        _run(["git", "add", "legacy.py"], cwd=self.repo)
+        _run(["git", "commit", "-q", "-m", "seed legacy stub"], cwd=self.repo)
+        new_base = _run(["git", "rev-parse", "HEAD"], cwd=self.repo).stdout.strip()
+
+        diff = _make_diff(self.repo, lambda tmp: (tmp / "app.py").write_text(
+            "def foo():\n    return 2\n"
+        ))
+        result = static_gate(
+            main_repo=self.repo, base_sha=new_base, diff_bytes=diff,
+            rehearsal_parent=self.parent,
+        )
+        self.assertTrue(result.ok, f"{result.stage}: {result.error}")
+
+    # ---- hard tier: cheat line patterns (regex) ------------------------
+
+    def test_js_only_added_in_test_file_blocked(self) -> None:
+        result = self._gate(lambda tmp: (tmp / "web" / "app.test.ts").write_text(
+            "test.only('a', () => { expect(1).toBe(1); });\n"
+        ))
+        self.assertFalse(result.ok)
+        self.assertTrue(any(f.pattern_name == "test_only_added" for f in result.banned_findings))
+
+    def test_pytest_skip_added_in_test_file_blocked(self) -> None:
+        result = self._gate(lambda tmp: (tmp / "tests" / "test_app.py").write_text(
+            "import pytest\n"
+            "@pytest.mark.skip(reason='later')\n"
+            "def test_foo():\n"
+            "    assert True\n"
+        ))
+        self.assertFalse(result.ok)
+        self.assertTrue(any(f.pattern_name == "pytest_skip_added" for f in result.banned_findings))
+
+    def test_skip_pattern_outside_test_file_not_blocked(self) -> None:
+        # `.skip(` shapes in production paths are none of our business.
+        result = self._gate(lambda tmp: (tmp / "prod.js").write_text(
+            "const x = it.skip(3); // an unfortunate API name, not a test\n"
+        ))
+        self.assertTrue(result.ok, f"{result.stage}: {result.error}")
+
+    def test_rust_todo_macro_blocked_anywhere(self) -> None:
+        result = self._gate(lambda tmp: (tmp / "lib.rs").write_text(
+            "pub fn run() { todo!(\"later\") }\n"
+        ))
+        self.assertFalse(result.ok)
+        self.assertTrue(any(f.pattern_name == "rust_todo_macro" for f in result.banned_findings))
+
+    # ---- warning tier ---------------------------------------------------
+
+    def test_todo_marker_warns_but_passes(self) -> None:
+        result = self._gate(lambda tmp: (tmp / "app.py").write_text(
+            "def foo():\n    # TODO: tighten this later\n    return 2\n"
+        ))
+        self.assertTrue(result.ok, f"{result.stage}: {result.error}")
+        self.assertTrue(any(f.pattern_name == "todo_marker" for f in result.warning_findings))
+
+    def test_docstring_only_body_warns_but_passes(self) -> None:
+        result = self._gate(lambda tmp: (tmp / "hook.py").write_text(
+            'def on_event():\n    "No-op by design."\n'
+        ))
+        self.assertTrue(result.ok, f"{result.stage}: {result.error}")
+        self.assertTrue(any(f.pattern_name == "docstring_only_body" for f in result.warning_findings))
+
+    def test_clean_change_no_findings(self) -> None:
+        result = self._gate(lambda tmp: (tmp / "app.py").write_text(
+            "def foo():\n    return 3\n"
+        ))
+        self.assertTrue(result.ok, f"{result.stage}: {result.error}")
+        self.assertEqual(result.banned_findings, [])
+        self.assertEqual(result.warning_findings, [])
+
+
 if __name__ == "__main__":
     unittest.main()
