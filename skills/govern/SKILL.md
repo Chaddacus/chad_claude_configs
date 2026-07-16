@@ -105,9 +105,18 @@ Skip to Phase 5 (notification).
 5. Create tasks for each packet using `TaskCreate`:
    - Set `addBlockedBy` for DAG dependencies between packets
    - Include acceptance checks in task description
-6. Enter the orchestration loop (Phase 3)
-7. At reviewer barrier points → spawn reviewer, wait for verdict
-8. On completion → postflight gates (Phase 4)
+6. **Sprint-contract ack (ENFORCED gate):** send the planner's sprint contract
+   to the reviewer; on explicit ack, record it — R3/R4 `dispatch_track` blocks
+   with `missing_reviewer_ack` until this runs:
+   ```bash
+   python3 ~/.claude/bin/auto_runtime.py record-ack --track-id <track_id> \
+       --by reviewer --ref '<criteria hash or ack message>'
+   ```
+   Reviewer rejects → planner revises criteria → re-ack. Never record an ack
+   the reviewer didn't give.
+7. Enter the orchestration loop (Phase 3)
+8. At reviewer barrier points → spawn reviewer, wait for verdict
+9. On completion → postflight gates (Phase 4)
 
 #### R4 — Conservative Bounded Swarm
 

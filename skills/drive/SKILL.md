@@ -74,7 +74,14 @@ Execute a development goal continuously. Plan it, implement it, test it, fix it,
 
 **`--heavy`:**
 - Full planning-gate workflow: solution ladder, existing_primitives_considered, reuse_first_decision
-- Sprint contract: reviewer must explicitly ack each criterion before execution begins
+- Sprint contract: reviewer must explicitly ack each criterion before execution begins.
+  The ack is ENFORCED — R3/R4 `dispatch_track` blocks with `missing_reviewer_ack`
+  until recorded:
+  ```bash
+  python3 ~/.claude/bin/auto_runtime.py record-ack --track-id <track_id> \
+      --by reviewer --ref '<criteria hash or ack message>'
+  ```
+  Never record an ack the reviewer didn't give.
 - Use Sonnet for planner/reviewer (R3); Opus only if the task escalates to R4 risk level
 
 ### Phase 2 (--local-worker) — Delegate to goose/qwen

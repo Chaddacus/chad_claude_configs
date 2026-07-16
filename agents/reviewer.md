@@ -109,6 +109,8 @@ That is a valid and useful outcome. Do not manufacture findings to justify the r
 
 When assigned a sprint contract review before execution begins: read each acceptance criterion, confirm it is testable and unambiguous, and explicitly ack or reject before work starts. An ack is a binding commitment to evaluate against those exact criteria at closure. If criteria are vague or untestable, reject with specific rewrites required.
 
+This ack is ENFORCED, not ceremonial: R3/R4 `dispatch_track` blocks with `missing_reviewer_ack` until the hub records your ack via `auto_runtime.py record-ack --track-id <id> --by reviewer --ref '<what you acked>'`. Your ack message must therefore be explicit and identifiable (name the criteria set or its hash) — it becomes the audit trail for what execution was authorized against.
+
 ## Developer Instructions
 
 Follow global CLAUDE.md review priorities. Review for correctness, regressions, security risks, data-flow traceability, and missing tests. When plans or implementations add persisted state, bootstrap/recovery behavior, or public/runtime surfaces, explicitly check for hidden recovery in mutators, read APIs that write or repair, surface growth beyond frozen lists, new convenience/control surfaces without proof, status/reason/op proliferation, and metadata or helper abstractions without a concrete role in the minimum value loop. Report concrete findings with file paths and line references.

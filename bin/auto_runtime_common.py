@@ -1660,6 +1660,41 @@ def validate_sprint_contract(node: dict[str, Any], route_id: str) -> dict[str, A
     return {"valid": len(missing) == 0, "missing": missing}
 
 
+# Track-level reviewer ack (S7 fleet-hardening). planner.md/reviewer.md always
+# CLAIMED "no execution until the reviewer acks the sprint contract" but no
+# code checked it — a dead-letter contract. This is the enforcement: R3/R4
+# dispatch blocks until an ack is recorded via `auto_runtime.py record-ack`.
+REVIEWER_ACK_KEY = "reviewer_ack"
+
+
+def validate_reviewer_ack(state: dict[str, Any], route_id: str) -> dict[str, Any]:
+    """R3/R4 gate: dispatch may not start until the sprint contract carries a
+    recorded reviewer ack. R1/R2 exempt. Pure predicate over track state."""
+    if route_id in ("R1", "R2"):
+        return {"valid": True}
+    ack = state.get("views", {}).get("governance", {}).get(REVIEWER_ACK_KEY)
+    if isinstance(ack, dict) and ack.get("acked_by") and ack.get("at"):
+        return {"valid": True, "ack": ack}
+    return {"valid": False, "reason": "missing_reviewer_ack"}
+
+
+def record_reviewer_ack(track_id: str, *, acked_by: str = "reviewer", ref: str = "") -> dict[str, Any]:
+    """Record the reviewer's sprint-contract ack at track level.
+
+    `ref` should identify WHAT was acked (message id, criteria hash, or the
+    ack text) so the ack is auditable, not a rubber stamp. Unblocks R3/R4
+    dispatch; the gate itself never mutates node state, so recording the ack
+    is the complete unblock."""
+    td = track_dir(track_id)
+    state = _load_json(td / "objective.state.json")
+    governance = state["views"].setdefault("governance", {})
+    ack = {"acked_by": acked_by, "ref": ref, "at": now_iso()}
+    governance[REVIEWER_ACK_KEY] = ack
+    _save_json(td / "objective.state.json", state)
+    _append_event(track_id, {"event": "reviewer_ack_recorded", **ack})
+    return {"track_id": track_id, "reviewer_ack": ack}
+
+
 def phase_transition_allowed(
     from_phase: str,
     to_phase: str,
@@ -3244,6 +3279,29 @@ def dispatch_track(track_id: str) -> dict[str, Any]:
             "reason": "missing_acceptance_criteria",
             "slice_id": slice_id,
             "contract_validation": contract_check,
+        }
+
+    # Reviewer-ack gate (S7): R3/R4 execution may not start un-acked. The
+    # node is NOT marked blocked — the gate is track-level and recoverable;
+    # recording the ack makes the very next dispatch succeed.
+    ack_check = validate_reviewer_ack(state, route_id)
+    if not ack_check["valid"]:
+        _append_event(track_id, {
+            "event": "dispatch_blocked",
+            "reason": "missing_reviewer_ack",
+            "slice_id": slice_id,
+            "route_id": route_id,
+        })
+        return {
+            "track_id": track_id,
+            "status": "blocked",
+            "reason": "missing_reviewer_ack",
+            "slice_id": slice_id,
+            "unblock": (
+                "reviewer must ack the sprint contract, then record it: "
+                f"python3 ~/.claude/bin/auto_runtime.py record-ack --track-id {track_id} "
+                "--by reviewer --ref '<what was acked>'"
+            ),
         }
 
     # Slice 1c: pre-dispatch baseline capture (no enforcement; Slice 3 acts).
