@@ -14,6 +14,7 @@ Execute a development goal continuously. Plan it, implement it, test it, fix it,
 /drive Fix all failing tests in the auth module
 /drive --heavy Refactor the payment service
 /drive --local-worker Port the utils module to use memoization
+/drive --fresh-worker Port the utils module to use memoization
 /drive --issue https://github.com/owner/repo/issues/123
 ```
 
@@ -24,6 +25,7 @@ Execute a development goal continuously. Plan it, implement it, test it, fix it,
 | (none) | Lightweight plan + single-lane autonomous loop, Sonnet |
 | `--heavy` | Full planning-gate + sprint contract + reviewer ack before execution |
 | `--local-worker` | Delegate slice execution to local goose/qwen (LM Studio); Claude plans + reviews. Replaces former `/orchestrate-local`. See Phase 2 (--local-worker) below. |
+| `--fresh-worker` | Delegate each slice to a FRESH `claude --print` worker in an isolated worktree via the CP6 outer-loop driver — clean context per slice, supervisor-decides-done on verifier evidence. See Phase 2 (--fresh-worker) below. |
 | `--issue <url>` | Treat the URL as a GitHub issue; fetch and parse it into the goal, then drive. Replaces former `/fix-issue`. See Phase 0 (--issue) below. |
 
 ---
@@ -117,6 +119,58 @@ python3 ~/.claude/bin/goose_dispatch.py \
 **Before track complete:** run the Phase 3.5 user-journey smoke — `page.goto("/") + click + screenshot` for UI, CLI happy-path for tools, `curl` sequence for APIs. Green unit tests ≠ working product.
 
 Files this flag uses: `~/.claude/bin/goose_dispatch.py`, `~/.goosehints`, `~/.config/goose/skills/*.md`, `~/.claude/state/goose_dispatch/<slice_id>.log`.
+
+
+### Phase 2 (--fresh-worker) — Delegate to fresh claude-per-slice workers (CP6)
+
+When `--fresh-worker` is set, each slice runs in a FRESH `claude --print` worker in
+an isolated git worktree, driven by the CP6 outer-loop driver
+(`~/.claude/bin/outer_loop_driver.py`). Claude stays supervisor: plan slices + verify
+commands; the driver spawns/respawns workers (CP7 retry policy) and records a slice
+`accepted` **only** on passing verifier evidence — the supervisor, not the worker,
+decides done. This fixes context accumulation: every worker gets a clean window sized
+to one slice, so a derailed/context-blown worker is cheaply discarded and respawned.
+
+**Standing-capability gate:** workers run with `--permission-mode acceptEdits`
+(least-privilege; the settings deny-list still applies). The auto-mode classifier
+hard-gates self-enabling this loop — enable it by adding Bash allow-rules for
+`python3 ~/.claude/bin/outer_loop_driver.py` and `claude --print`, or run out of auto
+mode. This is a standing autonomous editing mechanism; enable deliberately.
+
+**Preflight (fail fast):**
+```bash
+test -x ~/.claude/bin/outer_loop_driver.py
+git -C "$PWD" diff --quiet && git -C "$PWD" diff --cached --quiet   # clean worktree required
+```
+
+**Slice discipline:** each slice needs a deterministic verify command. Either set
+per-slice `slice_contract.verification_commands` in the track, or pass a project-wide
+`--default-verify "<test cmd>"` used for any slice lacking one. A slice with neither
+is blocked (fail-closed) rather than accepted unverified.
+
+**Dispatch (drives the whole track to closure in one call):**
+```bash
+python3 ~/.claude/bin/outer_loop_driver.py \
+  --track-id <track_id> --main-repo "$PWD" \
+  --model sonnet --max-attempts 3 \
+  --default-verify "<project test/verify command>"
+```
+
+**Outcome handling** (the driver prints a JSON summary; exit 0 iff OBJECTIVE_COMPLETE):
+- `closure_state: OBJECTIVE_COMPLETE` → every slice accepted and ff-merged into main
+  as a small revertable commit; done.
+- a `blocked` result → read its `stage`/`reason`; a hard-stage failure or an exhausted
+  slice is where the supervisor (Claude) takes it in-session or replans.
+- CP7 events on stderr (`slice_attempt_failed`, `rate_limited`, `slice_accepted`)
+  narrate retries.
+
+**Isolation guarantees:** worker worktrees live OUTSIDE the repo and prompts carry
+only repo-relative paths; `worker_sandbox`'s HEAD-drift guard fails closed if a worker
+touches main directly (so a leak is refused, never merged). Verified live 2026-07-15.
+
+Files this flag uses: `~/.claude/bin/outer_loop_driver.py` (CP6), `slice_retry.py`
+(CP7), `verifier_shim.py`, `slice_executor.py` (CP5) + `worker_sandbox.py`/
+`static_gates.py`/`verifier.py`/`apply_rehearsal.py` (CP1–CP4).
 
 ---
 

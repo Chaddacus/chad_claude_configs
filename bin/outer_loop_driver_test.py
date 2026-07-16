@@ -119,6 +119,35 @@ class TestLoopWithFakeExecutor(unittest.TestCase):
         self.assertEqual(summary["accepted"], 3)
         self.assertEqual(summary["blocked"], 0)
 
+    def test_default_verify_fallback_accepts_slice_without_explicit_verify(self):
+        tmp = Path(tempfile.mkdtemp(prefix="cp6defv-"))
+        _init_repo(tmp, {"seed.txt": "x\n"})
+        # slice-1 from init has NO verification_commands.
+        tid = rt.initialize_track(task="cp6 default-verify", cwd=str(tmp),
+                                  route_override="R2", include_memory=False)["track_id"]
+
+        def fake(*, main_repo, spec):
+            return ExecutorResult(ok=True, stage="done", new_head_sha="sha")
+
+        summary = cp6.run_track(track_id=tid, main_repo=tmp, execute_fn=fake,
+                                sleep=lambda *_: None, default_verify="true", max_slices=5)
+        self.assertEqual(summary["accepted"], 1, summary)
+        self.assertEqual(summary["closure_state"], "OBJECTIVE_COMPLETE")
+
+    def test_no_verify_and_no_default_blocks(self):
+        tmp = Path(tempfile.mkdtemp(prefix="cp6noverify-"))
+        _init_repo(tmp, {"seed.txt": "x\n"})
+        tid = rt.initialize_track(task="cp6 no verify", cwd=str(tmp),
+                                  route_override="R2", include_memory=False)["track_id"]
+
+        def fake(*, main_repo, spec):
+            return ExecutorResult(ok=True, stage="done", new_head_sha="sha")
+
+        summary = cp6.run_track(track_id=tid, main_repo=tmp, execute_fn=fake,
+                                sleep=lambda *_: None, max_slices=5)   # no default_verify
+        self.assertEqual(summary["accepted"], 0)
+        self.assertGreaterEqual(summary["blocked"], 1)
+
     def test_give_up_marks_blocked_and_terminates(self):
         tmp = Path(tempfile.mkdtemp(prefix="cp6block-"))
         _init_repo(tmp, {"seed.txt": "x\n"})

@@ -158,6 +158,7 @@ def run_track(
     max_slices: int = 50,
     max_attempts: int = 3,
     worker_command: Optional[list[str]] = None,
+    default_verify: Optional[str] = None,
     execute_fn: Callable[..., ExecutorResult] = execute_slice,
     sleep: Callable[[float], None] = time.sleep,
     on_event: Optional[Callable[[dict], None]] = None,
@@ -189,7 +190,13 @@ def run_track(
         node = _load_state(track_id)["views"]["graph"]["nodes"][slice_id]
         verification_commands = list(node.get("slice_contract", {}).get("verification_commands", []) or [])
 
-        # Fail closed: a slice with no verification command can't be proven done.
+        # Fallback: slices without an explicit verify command use default_verify
+        # (e.g. the project test command) so CP6 is usable as a /drive default
+        # where the planner didn't populate per-slice verification_commands.
+        if not verification_commands and default_verify:
+            verification_commands = [default_verify]
+
+        # Fail closed: no verify command and no fallback -> can't prove done.
         if not verification_commands:
             with rt.TrackLock(track_id):
                 rt.update_node_state(track_id, slice_id, "blocked",
@@ -263,6 +270,8 @@ def main() -> int:
     ap.add_argument("--model", default="sonnet")
     ap.add_argument("--max-slices", type=int, default=50)
     ap.add_argument("--max-attempts", type=int, default=3)
+    ap.add_argument("--default-verify", default=None,
+                    help="Verify command for slices lacking explicit verification_commands (e.g. the project test command). Without it such slices are blocked.")
     args = ap.parse_args()
 
     summary = run_track(
@@ -271,6 +280,7 @@ def main() -> int:
         model=args.model,
         max_slices=args.max_slices,
         max_attempts=args.max_attempts,
+        default_verify=args.default_verify,
         on_event=lambda ev: print(json.dumps({"cp7_event": ev}), file=sys.stderr),
     )
     json.dump(summary, sys.stdout, indent=2, default=str)
