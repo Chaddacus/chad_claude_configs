@@ -36,7 +36,7 @@ from typing import Any, Callable, Optional
 sys.path.insert(0, str(Path(__file__).parent))
 
 import auto_runtime_common as rt
-from slice_executor import ExecutorResult, SliceSpec, execute_slice
+from slice_executor import ExecutorResult, SliceSpec, execute_slice, _read_head
 from slice_retry import run_slice_with_retry
 
 VERIFIER_SHIM = str(Path(__file__).parent / "verifier_shim.py")
@@ -173,6 +173,14 @@ def run_track(
     results: list[dict] = []
     closure_state = None
 
+    # Record the repo's HEAD before any slice lands so the supervisor can
+    # run the mandatory post-track review over `git diff base_sha..final_sha`
+    # (S2 fleet-hardening: one review per track, catching cross-slice issues).
+    try:
+        base_sha: Optional[str] = _read_head(main_repo)
+    except Exception:
+        base_sha = None
+
     # Worker worktrees live OUTSIDE main_repo so a real claude worker resolves
     # its own worktree as the workspace root (see build_slice_spec). Cleaned at end.
     workers_root = Path(tempfile.mkdtemp(prefix="cp6-workers-"))
@@ -253,12 +261,20 @@ def run_track(
 
     accepted = sum(1 for r in results if r.get("result") == "accepted")
     blocked = sum(1 for r in results if r.get("result") == "blocked")
+    try:
+        final_sha: Optional[str] = _read_head(main_repo)
+    except Exception:
+        final_sha = None
     return {
         "track_id": track_id,
         "closure_state": closure_state,
         "iterations": len(results),
         "accepted": accepted,
         "blocked": blocked,
+        # Review span for the mandatory post-track reviewer pass:
+        # `git diff base_sha..final_sha` is the whole track's change.
+        "base_sha": base_sha,
+        "final_sha": final_sha,
         "results": results,
     }
 

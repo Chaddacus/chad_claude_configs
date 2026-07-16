@@ -158,11 +158,24 @@ python3 ~/.claude/bin/outer_loop_driver.py \
 
 **Outcome handling** (the driver prints a JSON summary; exit 0 iff OBJECTIVE_COMPLETE):
 - `closure_state: OBJECTIVE_COMPLETE` → every slice accepted and ff-merged into main
-  as a small revertable commit; done.
+  as a small revertable commit. **Then the MANDATORY post-track review** (see below)
+  before the run may be declared done.
 - a `blocked` result → read its `stage`/`reason`; a hard-stage failure or an exhausted
   slice is where the supervisor (Claude) takes it in-session or replans.
 - CP7 events on stderr (`slice_attempt_failed`, `rate_limited`, `slice_accepted`)
   narrate retries.
+
+**Post-track review (mandatory on OBJECTIVE_COMPLETE).** CP6 workers run agent-less
+with only exit-0 acceptance — the review is where judgment-tier quality control
+happens, once per track (cross-slice view, amortized cost):
+1. The summary carries the review span: `base_sha` (HEAD before slice 1) and
+   `final_sha` (HEAD after the last merge).
+2. Dispatch the `reviewer` agent (two-stage) over `git diff <base_sha>..<final_sha>`
+   in the target repo, with the track's objective as context.
+3. Grounded findings → fix them (new slices via the driver, or in-session for small
+   ones) and re-run the review on the fix delta. "No grounded findings" → done.
+4. Do NOT declare the run complete, close the track summary to the user, or start
+   dependent work before this pass. A skipped review is a false completion.
 
 **Isolation guarantees:** worker worktrees live OUTSIDE the repo and prompts carry
 only repo-relative paths; `worker_sandbox`'s HEAD-drift guard fails closed if a worker

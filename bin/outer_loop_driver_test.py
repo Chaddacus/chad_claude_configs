@@ -114,10 +114,15 @@ class TestLoopWithFakeExecutor(unittest.TestCase):
         def fake(*, main_repo, spec):
             return ExecutorResult(ok=True, stage="done", new_head_sha=f"sha-{spec.branch_name}")
 
+        head_before = subprocess.run(["git", "rev-parse", "HEAD"], cwd=str(tmp),
+                                     capture_output=True, text=True).stdout.strip()
         summary = cp6.run_track(track_id=tid, main_repo=tmp, execute_fn=fake, sleep=lambda *_: None, max_slices=20)
         self.assertEqual(summary["closure_state"], "OBJECTIVE_COMPLETE")
         self.assertEqual(summary["accepted"], 3)
         self.assertEqual(summary["blocked"], 0)
+        # S2: summary carries the review span for the post-track reviewer pass.
+        self.assertEqual(summary["base_sha"], head_before)
+        self.assertEqual(summary["final_sha"], head_before)  # fake executor never moves HEAD
 
     def test_default_verify_fallback_accepts_slice_without_explicit_verify(self):
         tmp = Path(tempfile.mkdtemp(prefix="cp6defv-"))
@@ -181,6 +186,10 @@ class TestEndToEndRealPipeline(unittest.TestCase):
         self.assertEqual(summary["accepted"], 1, summary)
         # The accepted slice's diff was ff-merged into main.
         self.assertEqual((tmp / "marker.txt").read_text().strip(), "DONE")
+        # S2: real merge moved HEAD — review span is non-empty and ordered.
+        self.assertIsNotNone(summary["base_sha"])
+        self.assertIsNotNone(summary["final_sha"])
+        self.assertNotEqual(summary["base_sha"], summary["final_sha"])
 
 
 if __name__ == "__main__":
