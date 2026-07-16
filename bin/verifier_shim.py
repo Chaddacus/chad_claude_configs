@@ -11,6 +11,17 @@ plus one CITE to a file that provably exists in the snapshot — turning a plain
 exit code into the structured evidence the verifier requires. On failure it
 exits non-zero and emits NO CLAIM, so validation fails closed.
 
+Evidence tier — be honest about what this proves (S3 fleet-hardening):
+the ONLY evidence this shim produces is the acceptance command's exit code.
+The CITE satisfies CP4's structural contract; it is an ANCHOR, not proof —
+the cited line says nothing about the claim. The CLAIM text says which kind
+of anchor was used (`cite=slice-owned artifact` when --cite-file matched,
+`cite=anchor-only` when auto-discovered) so downstream readers of track
+evidence never mistake it for citation-grade verification. The upgrade path
+for real citation-grade evidence is per-criterion verifiers that make
+specific claims about specific lines; until a slice ships one, its evidence
+tier is exit-code.
+
 Usage (as SliceSpec.verifier_command; launched with cwd = the snapshot):
     verifier_shim.py --check "<shell command>" [--cite-file REL]...
 
@@ -27,26 +38,27 @@ import sys
 from pathlib import Path
 
 
-def _first_citable(cwd: Path, preferred: list[str]) -> str | None:
-    """Return a repo-relative path to a non-empty regular file to cite.
+def _first_citable(cwd: Path, preferred: list[str]) -> tuple[str, str] | None:
+    """Return (repo-relative path, source) for a non-empty regular file to cite.
 
-    Prefers caller-supplied paths (slice-owned files), then falls back to a
-    deterministic walk of the snapshot. The citation only needs to resolve to
-    a real file with >=1 line — the acceptance evidence is the command's exit
-    code; the CITE just satisfies the verifier's structural contract.
+    `source` is "slice-owned artifact" when a caller-supplied --cite-file
+    matched, else "anchor-only" for the deterministic-walk fallback. The
+    citation only needs to resolve to a real file with >=1 line — the
+    acceptance evidence is the command's exit code; the CITE satisfies the
+    verifier's structural contract and the CLAIM text names which kind it is.
     """
     # 1) Honour caller-supplied preferences first.
     for rel in preferred:
         p = (cwd / rel)
         if p.is_file() and _line_count(p) >= 1:
-            return rel
+            return rel, "slice-owned artifact"
     # 2) Deterministic fallback: first non-empty regular file, .git excluded.
     for root, dirs, files in os.walk(cwd):
         dirs[:] = sorted(d for d in dirs if d != ".git")
         for name in sorted(files):
             full = Path(root) / name
             if full.is_file() and _line_count(full) >= 1:
-                return str(full.relative_to(cwd))
+                return str(full.relative_to(cwd)), "anchor-only"
     return None
 
 
@@ -83,12 +95,16 @@ def main() -> int:
         sys.stderr.write(f"verifier_shim: acceptance command failed (exit {proc.returncode}): {args.check}\n")
         return proc.returncode or 1
 
-    cite = _first_citable(cwd, args.cite_file)
-    if cite is None:
+    found = _first_citable(cwd, args.cite_file)
+    if found is None:
         sys.stderr.write("verifier_shim: acceptance passed but no citable file found in snapshot\n")
         return 3
+    cite, cite_source = found
 
-    print(f"CLAIM: acceptance command passed (exit 0): {args.check}")
+    # The bracketed tail is the honesty label: evidence tier is the exit code,
+    # and the cite is either a slice-owned artifact or a bare parser anchor.
+    print(f"CLAIM: acceptance command passed (exit 0): {args.check} "
+          f"[evidence-tier: exit-code; cite={cite_source}]")
     print(f"CITE: {cite}:1")
     return 0
 
