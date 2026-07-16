@@ -357,12 +357,16 @@ def review_queue(archive: bool = False) -> int:
         print(f"  {status:<12} {ts[:19]:<19} {Path(target).name:<28} {path.name}")
 
     if archive:
-        day = datetime.now(timezone.utc).strftime("%Y%m%d")
-        reviewed_dir = STATE_DIR / "reviewed" / day
+        stamp = datetime.now(timezone.utc)
+        reviewed_dir = STATE_DIR / "reviewed" / stamp.strftime("%Y%m%d")
         reviewed_dir.mkdir(parents=True, exist_ok=True)
         summary = [{"proposal": p.name, "status": s, "ts": ts, "target": t}
                    for p, s, ts, t in rows]
-        (reviewed_dir / "review-summary.json").write_text(
+        # Per-run filename: a second same-day archive must not overwrite the
+        # morning run's audit record (review finding, 2026-07-16). Microsecond
+        # component because two runs CAN land in the same second (the test
+        # that pins this does exactly that).
+        (reviewed_dir / f"review-summary-{stamp.strftime('%H%M%S-%f')}.json").write_text(
             json.dumps({"reviewed_at": _now(), "entries": summary}, indent=2) + "\n")
         for path, _, _, _ in rows:
             shutil.move(str(path), str(reviewed_dir / path.name))
