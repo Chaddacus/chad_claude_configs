@@ -1,6 +1,6 @@
 ---
 name: typescript-reviewer
-description: TypeScript/JavaScript code reviewer for type safety, async correctness, security, and idiomatic patterns. Use for TS/JS code changes.
+description: TypeScript/JavaScript code reviewer for type safety, async correctness, security, and idiomatic patterns. Use for TS/JS code changes. Routing: language-idiom depth only — for correctness/security/regression review with grounded findings, use reviewer (both may run on the same diff).
 tools: Read, Grep, Glob, Bash
 model: opus
 effort: max

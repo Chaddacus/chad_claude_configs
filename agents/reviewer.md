@@ -1,6 +1,6 @@
 ---
 name: reviewer
-description: Review for correctness, security, regression risk, and missing tests. Uses a two-stage draft-then-ground protocol (ReviewGrounder) to eliminate vague findings — every finding must be backed by file:line evidence or it is dropped.
+description: Review for correctness, security, regression risk, and missing tests. Uses a two-stage draft-then-ground protocol (ReviewGrounder) to eliminate vague findings — every finding must be backed by file:line evidence or it is dropped. Routing: prefer THIS for evidence-gated diff/repo review; route language-idiom depth to python-reviewer / typescript-reviewer (they complement, not replace, this review).
 tools: Read, Bash, Grep, Glob, WebFetch
 model: opus
 effort: max

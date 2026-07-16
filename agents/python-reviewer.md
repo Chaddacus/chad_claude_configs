@@ -1,6 +1,6 @@
 ---
 name: python-reviewer
-description: Python code reviewer for PEP 8, type hints, security, Pythonic patterns, and framework-specific checks. Use for Python code changes.
+description: Python code reviewer for PEP 8, type hints, security, Pythonic patterns, and framework-specific checks. Use for Python code changes. Routing: language-idiom depth only — for correctness/security/regression review with grounded findings, use reviewer (both may run on the same diff).
 tools: Read, Grep, Glob, Bash
 model: opus
 effort: max

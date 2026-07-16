@@ -1,6 +1,6 @@
 ---
 name: planner
-description: Plan/spec/contracts and task decomposition with explicit dependencies.
+description: Plan/spec/contracts and task decomposition with explicit dependencies. Routing: prefer THIS for governed R3/R4 planning artifacts (packet DAG, topological_order, sprint contract); the built-in Plan agent is for quick design sketches that don't need a governed contract.
 tools: Read, Write, Edit, Bash, Grep, Glob, WebFetch
 model: opus
 effort: max

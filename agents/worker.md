@@ -1,6 +1,6 @@
 ---
 name: worker
-description: General implementation agent for assigned work streams.
+description: General implementation agent for assigned work streams. Routing: prefer THIS for plan-assigned packets carrying owned_files + a sprint contract; use general-purpose for ad-hoc multi-step tasks outside a governed plan (CP6 fresh headless workers are spawned by outer_loop_driver, not via this agent).
 tools: Read, Write, Edit, Bash, Grep, Glob, WebFetch
 model: sonnet
 maxTurns: 25

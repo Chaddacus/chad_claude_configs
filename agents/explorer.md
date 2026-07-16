@@ -1,6 +1,6 @@
 ---
 name: explorer
-description: Fast read-only codebase explorer for architecture and dependency mapping.
+description: Fast read-only codebase explorer for architecture and dependency mapping. Routing: prefer THIS for architecture/dependency mapping with a compact report; the built-in Explore agent is for broad fan-out file/naming sweeps.
 tools: Read, Bash, Grep, Glob, WebFetch
 model: haiku
 maxTurns: 20
