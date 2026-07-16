@@ -182,6 +182,7 @@
   "postflight": {
     "enabled": true,
     "mode": "enforce",
+    "scope_note": "2026-07-16 audit H3: this gate chain executes ONLY under claude_run/ralph_done_loop (legacy invoker). The auto_runtime track path does NOT run it — build_closure records postflight_executed:false and nothing blocks on it. R3/R4 verification on the live path is owned by planning-gate + evidence-backed track closure (+ CP6 outer loop when driving). program_close_command's npm script exists only in zoom_slm_orchestration; require_program_close applies there alone.",
     "routes": [
       "R3",
       "R4"

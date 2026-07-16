@@ -2,12 +2,19 @@
 
 Determines the active hook profile from the route classification.
 The classify_prompt.py hook writes the current route to a session-scoped
-temp file; this module reads it to gate downstream hooks automatically.
+temp file; this module reads it to gate downstream hooks.
 
 Route → Profile mapping:
-  R1          → minimal  (health check + notify only)
-  R2          → standard (all governance hooks)
-  R3, R4, R5  → strict   (all hooks + observation capture)
+  R1          → minimal
+  R2, R5      → standard
+  R3, R4      → strict
+
+TRUTH IN GATING (2026-07-16 audit H5): a profile only gates scripts that
+actually call should_run("<id>"). Most hook_chain members (stop_gate,
+completion_gate, product_truth_auto_dispatch, replan/self-merge checks,
+telemetry, recorders) never check — they run in EVERY profile by design.
+The ids in PROFILES below are exactly the self-gating scripts; adding an id
+here does nothing unless the script also calls should_run.
 
 Fallback: CLAUDE_HOOK_PROFILE env var, or "standard" if nothing is set.
 """
@@ -24,22 +31,29 @@ ROUTE_TO_PROFILE = {
 }
 
 PROFILES = {
-    # secret_leak_warn (security tripwire) and web_search_breaker (web-tool runaway +
-    # failure-cascade guard) are enabled in every profile, same posture as pre_tool_guard.
-    #
-    # classify_prompt MUST be in every profile: it is the only writer of the
-    # route file this module reads. Excluding it from a profile deadlocks the
-    # session in that profile — an R1 classification switched to "minimal",
-    # which gated off the classifier, so the route could never change again
-    # (2026-07-16 audit finding C2, live-demonstrated).
-    "minimal": {"session_startup", "notify_done", "completion_gate_stop", "pre_tool_guard",
-                "secret_leak_warn", "web_search_breaker", "classify_prompt"},
+    # Self-gating scripts only — each id below has a script calling
+    # should_run("<id>"):
+    #   classify_prompt   — the route-file writer; MUST be in every profile.
+    #                       Excluding it deadlocks the session in that profile:
+    #                       an R1 classification switched to "minimal", gated
+    #                       off the classifier, and the route could never
+    #                       change again (audit C2, live-demonstrated).
+    #   pre_tool_guard, secret_leak_warn, web_search_breaker — safety
+    #                       tripwires, enabled in every profile.
+    #   edit_verify_async, subagent_verify, tool_failure_context — governance
+    #                       verification, disabled in minimal.
+    #   what_would_chad_do — self-gates but currently unwired (companion_stop
+    #                       has no hook registration); id kept for rewiring.
+    # Phantom ids removed 2026-07-16 (audit H5): session_startup, notify_done,
+    # completion_gate_stop/_task, codex_review_gate, replan_evidence_check,
+    # self_merge_check — no script checks them (codex_review_gate.py never
+    # existed), so listing them gated nothing.
+    "minimal": {"pre_tool_guard", "secret_leak_warn", "web_search_breaker",
+                "classify_prompt"},
     "standard": {
-        "session_startup", "notify_done", "completion_gate_stop", "pre_tool_guard",
-        "classify_prompt", "edit_verify_async", "completion_gate_task",
-        "subagent_verify", "tool_failure_context", "what_would_chad_do",
-        "codex_review_gate", "replan_evidence_check", "self_merge_check",
-        "secret_leak_warn", "web_search_breaker",
+        "classify_prompt", "pre_tool_guard", "secret_leak_warn",
+        "web_search_breaker", "edit_verify_async", "subagent_verify",
+        "tool_failure_context", "what_would_chad_do",
     },
     "strict": None,  # None = all hooks enabled
 }

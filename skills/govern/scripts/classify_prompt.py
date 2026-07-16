@@ -82,7 +82,7 @@ The mirror image of anti-stop. On 2026-06-10 an advisory request became an unrat
 R3_R4_GOVERNANCE_GATES = """## R3/R4 governed-lanes gates
 
 - Use the governed path: run omni-mem retrieval, use planning-gate skill, satisfy prompt-contract requirements, run validation before closeout.
-- R3/R4 require planning-gate and Ralph postflight.
+- R3/R4 require planning-gate and evidence-backed track closure (auto_runtime update-node --evidence, cycle to OBJECTIVE_COMPLETE). The legacy Ralph postflight chain runs only under claude_run — it is NOT a live gate on this path; do not defer to it.
 - Align before broad execution: explore repo facts first, then resolve only the product/authority ambiguity that cannot be discovered locally.
 - Convert broad work into PRD/story-shaped slices when useful, but revalidate old PRDs, plans, and issue text against current code before trusting them.
 - Prefer vertical slices/tracer bullets over horizontal database-then-API-then-UI phases unless dependencies force a horizontal step.
