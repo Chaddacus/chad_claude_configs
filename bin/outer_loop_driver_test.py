@@ -187,6 +187,52 @@ class TestLoopWithFakeExecutor(unittest.TestCase):
         self.assertLessEqual(summary["iterations"], 5)   # terminated, no infinite loop
 
 
+class TestStubGateRetryIntegration(unittest.TestCase):
+    """S1+S9: a worker that hands off a stub is BLOCKED by the CP3 stub gate,
+    CP7 folds the named finding into the retry, and the fixed second attempt
+    is accepted — the full mess-up -> discard -> respawn -> land story."""
+
+    def test_stub_first_attempt_blocked_then_fixed_and_accepted(self):
+        tmp = Path(tempfile.mkdtemp(prefix="cp6stub-"))
+        _init_repo(tmp, {"mod.py": "def f():\n    return 1\n"})
+        sentinel = tmp.parent / f"attempt-{tmp.name}.sentinel"
+        worker = tmp.parent / f"worker-{tmp.name}.sh"
+        # Attempt 1: gut f() into a stub (must be blocked by static_gate).
+        # Attempt 2 (sentinel exists): real implementation.
+        worker.write_text(
+            "#!/usr/bin/env bash\nset -e\n"
+            f"if [ ! -f '{sentinel}' ]; then\n"
+            f"  touch '{sentinel}'\n"
+            "  printf 'def f():\\n    pass\\n' > mod.py\n"
+            "else\n"
+            "  printf 'def f():\\n    return 42\\n' > mod.py\n"
+            "fi\n"
+        )
+        tid = _make_track(tmp, "cp6 stub-gate retry", [
+            ("slice-1", "python3 -c 'import mod; assert mod.f() == 42'"),
+        ])
+
+        events: list[dict] = []
+        summary = cp6.run_track(
+            track_id=tid, main_repo=tmp,
+            worker_command=["bash", str(worker)],
+            sleep=lambda *_: None, max_slices=5,
+            on_event=events.append,
+        )
+        self.assertEqual(summary["closure_state"], "OBJECTIVE_COMPLETE", summary)
+        self.assertEqual(summary["accepted"], 1, summary)
+        # Attempt 1 failed at the static gate with the stub NAMED (so the
+        # retry prompt tells the next worker what was wrong).
+        fails = [e for e in events if e.get("event") == "slice_attempt_failed"]
+        self.assertEqual(len(fails), 1, events)
+        self.assertEqual(fails[0]["stage"], "static_gate")
+        self.assertIn("stub_pass_body", fails[0]["error"])
+        self.assertTrue(fails[0]["hard"])
+        # The fix landed on main.
+        self.assertIn("return 42", (tmp / "mod.py").read_text())
+        self.assertNotEqual(summary["base_sha"], summary["final_sha"])
+
+
 class TestEndToEndRealPipeline(unittest.TestCase):
     def test_script_worker_slice_applies_to_main(self):
         tmp = Path(tempfile.mkdtemp(prefix="cp6e2e-"))
