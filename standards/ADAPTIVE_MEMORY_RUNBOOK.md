@@ -9,6 +9,12 @@ lexical_guard_profile: stale_names
 
 # Adaptive Memory Runbook
 
+> **Status (2026-07-16 audit M8): LEGACY.** The codex-mem CLI this runbook
+> operates (`/Users/chadsimon/code/codex-mem/dist/cli.js`) and the incident
+> dir (`~/.claude-mem/incidents/`) no longer exist on disk. Live memory is
+> the two-tier native-markdown + omni-mem stack (see REFERENCE_INDEX.md).
+> Kept for historical procedure reference only.
+
 ## Purpose
 Operational guide for codex-mem preference adaptation, maintenance, and incident response.
 

@@ -60,6 +60,10 @@ behavioral; lookup material lives here). This file is pointer-only — no rules.
 
 ## Legacy reference (not canonical inputs)
 
-`~/.claude/sync-sources/`, `~/.claude/rules/codex-import/`,
-`~/.claude/state/codex_sync_manifest.json`, `claude-mem` (`~/.claude-mem/`,
+`~/.claude/sync-sources/`, `claude-mem` (`~/.claude-mem/`,
 import/reference only — not in the live request path).
+
+Removed from disk (2026-07-16 audit M8 — names kept here only so old
+references resolve to an explanation): `~/.claude/rules/codex-import/`,
+`~/.claude/state/codex_sync_manifest.json` — the codex-import sync flow was
+retired; nothing consumes these paths.

@@ -9,6 +9,15 @@ lexical_guard_profile: stale_names
 
 # Ralph Loop Runbook (v1.4)
 
+> **Status (2026-07-16 audit H3/M8): LEGACY.** This chain executes only under
+> `claude_run`/`ralph_done_loop` — the auto_runtime track path never runs it
+> (`build_closure` records `postflight_executed:false`; no consumer blocks on
+> it). Live-path R3/R4 verification is owned by planning-gate + evidence-backed
+> track closure (+ the CP6 outer loop when driving). Known dead refs below:
+> the `/Users/chadsimon/.claude/tests/postflight` pytest target no longer
+> exists, and `state/postflight_runs/` is created only when a claude_run run
+> actually executes.
+
 ## Scope
 Operational runbook for Postflight Completion Gate (Ralph Loop) enforcement on `R3/R4` routes.
 Auto-continue is enforced for `codex exec` finalize flows.
