@@ -28,12 +28,19 @@ def main() -> int:
     except (json.JSONDecodeError, IOError):
         payload = {}
 
+    # Field contract verified against the shipped v2.1.211 dispatch source
+    # (2026-07-16 audit M10): StopFailure sends {error, error_details,
+    # last_assistant_message, ...base}. There is no hook_command/command
+    # field — the old lookups left failed_hook empty and error "unknown" on
+    # all 67 records observed at audit time. error_details carries the
+    # attribution; last_assistant_message gives postmortem context.
     record = {
         "ts": time.time(),
         "session_id": payload.get("session_id", ""),
         "hook_event_name": payload.get("hook_event_name", "StopFailure"),
-        "failed_hook": payload.get("hook_command") or payload.get("command") or "",
-        "error": str(payload.get("error") or payload.get("stderr") or "")[:500],
+        "error": str(payload.get("error") or "")[:500],
+        "error_details": str(payload.get("error_details") or "")[:2000],
+        "last_assistant_message": str(payload.get("last_assistant_message") or "")[:400],
         "cwd": payload.get("cwd", ""),
     }
     try:
