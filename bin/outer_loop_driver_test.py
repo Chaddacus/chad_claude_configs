@@ -104,6 +104,25 @@ class TestPureRendering(unittest.TestCase):
         self.assertNotIn("/repo", hints)
         self.assertNotIn(".", hints)
 
+    def test_context_pack_rendered_and_capped(self):
+        # S4: curated facts render into the prompt; bounds are enforced.
+        pack = [f"fact {i}" for i in range(cp6.CONTEXT_PACK_MAX_ENTRIES + 3)]
+        pack[0] = "the omni-mem container name is omni-mem, not omni_mem\nmulti-line"
+        pack[1] = "x" * (cp6.CONTEXT_PACK_MAX_ENTRY_CHARS + 50)
+        node = {"id": "slice-1", "title": "t",
+                "slice_contract": {"context_pack": pack}, "owned_scope": []}
+        p = cp6.render_worker_prompt(node, 1, None, ["true"], Path("/repo"))
+        self.assertIn("Curated context", p)
+        self.assertIn("omni-mem, not omni_mem multi-line", p)   # newline flattened
+        self.assertIn("…", p)                                    # long entry truncated
+        self.assertNotIn("x" * (cp6.CONTEXT_PACK_MAX_ENTRY_CHARS + 1), p)
+        self.assertIn("(+3 more entries truncated)", p)          # entry cap enforced
+        # No pack → no section.
+        bare = cp6.render_worker_prompt(
+            {"id": "s", "title": "t", "slice_contract": {}, "owned_scope": []},
+            1, None, ["true"], Path("/repo"))
+        self.assertNotIn("Curated context", bare)
+
 
 class TestLoopWithFakeExecutor(unittest.TestCase):
     def test_three_slices_reach_objective_complete(self):

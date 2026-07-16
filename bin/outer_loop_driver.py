@@ -41,6 +41,11 @@ from slice_retry import run_slice_with_retry
 
 VERIFIER_SHIM = str(Path(__file__).parent / "verifier_shim.py")
 
+# Bounds for slice_contract.context_pack rendering (S4): enough for curated
+# gotchas/conventions, small enough to never recreate context accumulation.
+CONTEXT_PACK_MAX_ENTRIES = 20
+CONTEXT_PACK_MAX_ENTRY_CHARS = 200
+
 TERMINAL_CLOSURE = frozenset({
     "OBJECTIVE_COMPLETE",
     "OBJECTIVE_COMPLETE_BOUNDARY_SHRUNK",
@@ -107,6 +112,21 @@ def render_worker_prompt(node: dict, attempt: int, last: Optional[ExecutorResult
     if owned:
         lines += ["", "# You may ONLY edit these paths (relative to the current directory):"]
         lines += [f"- {p}" for p in owned]
+    # Curated context (S4 fleet-hardening): planner-curated facts — repo
+    # gotchas, conventions, prior-slice decisions — carried by the durable
+    # slice contract. Bounded so fresh workers get informed context WITHOUT
+    # reopening the ambient-history firehose that clean-per-slice exists to
+    # prevent.
+    pack = contract.get("context_pack", []) or []
+    if pack:
+        lines += ["", "# Curated context (facts from the planner — trust but verify):"]
+        for entry in pack[:CONTEXT_PACK_MAX_ENTRIES]:
+            text = str(entry).strip().replace("\n", " ")
+            if len(text) > CONTEXT_PACK_MAX_ENTRY_CHARS:
+                text = text[:CONTEXT_PACK_MAX_ENTRY_CHARS] + "…"
+            lines += [f"- {text}"]
+        if len(pack) > CONTEXT_PACK_MAX_ENTRIES:
+            lines += [f"- (+{len(pack) - CONTEXT_PACK_MAX_ENTRIES} more entries truncated)"]
     if verification_commands:
         lines += ["", "# Verification that will be run against your work:"]
         lines += [f"- {vc}" for vc in verification_commands]
