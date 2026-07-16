@@ -395,16 +395,19 @@ def _format_summary(
         lines.append("")
 
     # Git
-    if git.get("branch") or git.get("commits") or git.get("changed_files"):
+    # Bind commits/cf unconditionally: the "no artifacts" check below reads
+    # `commits` even when the Git block is skipped (clean/read-only session),
+    # which previously raised UnboundLocalError.
+    commits = git.get("commits") or []
+    cf = git.get("changed_files") or []
+    if git.get("branch") or commits or cf:
         lines.append("## Git")
         if git.get("branch"):
             lines.append(f"- **branch:** `{git['branch']}`")
-        commits = git.get("commits") or []
         if commits:
             lines.append(f"- **commits in last 24h:** {len(commits)}")
             for c in commits[:10]:
                 lines.append(f"  - {c}")
-        cf = git.get("changed_files") or []
         if cf:
             lines.append(f"- **uncommitted changes:** {len(cf)}")
             for f in cf[:10]:

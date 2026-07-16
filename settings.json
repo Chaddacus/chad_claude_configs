@@ -201,6 +201,16 @@
             "timeout": 10
           }
         ]
+      },
+      {
+        "matcher": "WebSearch|WebFetch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 /Users/chadsimon/.claude/bin/web_search_breaker.py",
+            "timeout": 5
+          }
+        ]
       }
     ],
     "PostToolUse": [
@@ -226,6 +236,16 @@
             "type": "command",
             "command": "python3 /Users/chadsimon/.claude/bin/hook_chain.py --chain post-bash",
             "timeout": 8
+          }
+        ]
+      },
+      {
+        "matcher": "WebSearch|WebFetch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 /Users/chadsimon/.claude/bin/web_search_breaker.py",
+            "timeout": 5
           }
         ]
       }
@@ -453,7 +473,7 @@
   },
   "feedbackSurveyRate": 0,
   "alwaysThinkingEnabled": true,
-  "effortLevel": "medium",
+  "effortLevel": "xhigh",
   "agent": "chad-twin",
   "tui": "fullscreen",
   "skipDangerousModePermissionPrompt": true,
@@ -461,6 +481,5 @@
   "remoteControlAtStartup": true,
   "agentPushNotifEnabled": true,
   "skipAutoPermissionPrompt": true,
-  "mcpServers": {},
-  "model": "claude-fable-5[1m]"
+  "mcpServers": {}
 }

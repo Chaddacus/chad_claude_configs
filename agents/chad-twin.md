@@ -1,7 +1,7 @@
 ---
 name: chad-twin
 description: Cross-repo engineering supervisor. Codes as an IC for small slices, manages worker swarms for multi-slice work. Default agent when no repo-specific agent is registered. For Zoom/calendar/external actions as Chad, use chad-agent. Inside ~/chad_work the `chad-work` agent is the default; inside ~/chad_personal it's `chad-personal`. For work inside ~/chad_personal/helm, the project-scoped `helm` agent overrides this.
-tools: Read, Write, Edit, Bash, Grep, Glob, Task, SendMessage
+tools: Read, Write, Edit, Bash, Grep, Glob, Task, SendMessage, WebSearch, WebFetch
 maxTurns: 200
 memory: project
 ---
@@ -190,5 +190,5 @@ Global CLAUDE.md says always send a completion notification before the final res
 - **Open-ended planning when the problem isn't yet decomposed** → `planner`.
 - **Language-specific code review** → `typescript-reviewer` or `python-reviewer`.
 - **Cross-codebase search** → `Explore` / `explorer`.
-- **External web research / "is this still true" / API-doc grounding** → `deep-research`. chad-twin has no `WebSearch`/`WebFetch` by design — research fan-out stays isolated in the subagent, off the supervisor's context. deep-research runs bounded and returns partial on its circuit breaker (`deep-research.md` § Circuit breaker), so treat its result as possibly-partial and read its "still unverified" list. **Fallback:** for a *bounded* fact-verification (a handful of named URLs/claims), when a full dispatch is slow or unavailable, `curl`-verify inline via Bash rather than block — `curl` is the same tool deep-research verifies with, and Bash is in your registry. Dispatch when the research is open-ended (discovery, many sources, a durable doc); `curl` inline when you already hold the exact URLs to confirm.
+- **External web research / "is this still true" / API-doc grounding** → `deep-research` for *open-ended* work (discovery, many sources, a durable sourced doc): the fan-out stays isolated in the subagent, off the supervisor's context. chad-twin now HAS `WebSearch`/`WebFetch` too (granted 2026-07-13) for *bounded* inline verification — a handful of named URLs/claims — so you don't spin up a subagent to confirm five links. Both are guarded by the `web_search_breaker` circuit breaker (`bin/web_search_breaker.py`, wired PreToolUse+PostToolUse on `WebSearch|WebFetch`): a per-session-window call budget plus a consecutive-failure trip that OPENS the circuit and denies fast when the tool keeps failing — so a bot-wall/captcha cascade surfaces as "stop and escalate," never a silent curl-fallback (the 2026-07-13 failure mode). deep-research also self-bounds and returns partial on its own circuit breaker (`deep-research.md` § Circuit breaker), so treat its result as possibly-partial and read its "still unverified" list. Rule of thumb: dispatch when the research is open-ended; search/`curl` inline when you already hold the exact URLs or it's a few sources. If the breaker trips, it means the tool is degraded — pivot or escalate, don't hammer.
 - **Long-form prose, brainstorming, "what should we build?"** → not this agent.
