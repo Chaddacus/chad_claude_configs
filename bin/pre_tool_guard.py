@@ -33,7 +33,12 @@ BLOCK_PATTERNS = [
     (r"git\s+reset\s+--hard", "git reset --hard (discards local changes; policy: only on explicit user request)"),
     (r"git\s+checkout\s+--\s", "git checkout -- (discards local changes; policy: only on explicit user request)"),
     (r"(curl|wget)\s[^|;&]*\|\s*(ba|z|da)?sh\b", "remote script piped to shell (curl|sh)"),
-    (r":\s*>\s*\S", "file truncation via colon redirect"),
+    # Anchored to command position. The shell idiom is `: > file` with `:` as the
+    # COMMAND; unanchored, this matched any `:>` anywhere in the string and hard-
+    # blocked ordinary work — Python format specs (f"{x:>4}", "{:>10}".format),
+    # jq/awk programs, and heredocs all trip it, and the operator sees
+    # "catastrophic operation" for a right-aligned print.
+    (r"(?:^|[;&|]\s*|\$\(\s*|`\s*):\s*>\s*\S", "file truncation via colon redirect"),
     (r"truncate\s+(?!--help|--version)", "file truncation"),
     (r"rm\s+(-[rf]+\s+)*\*\s*$", "rm -rf * (wildcard deletion in current dir)"),
 ]
