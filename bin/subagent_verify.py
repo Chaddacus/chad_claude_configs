@@ -140,9 +140,27 @@ def main():
     if start_floor is None:
         sys.exit(0)
 
-    # Check for unverified code edits made during this subagent's run.
+    # Attribution, not inference. A start-time floor only excludes edits made
+    # BEFORE this subagent began; it cannot exclude the parent's edits made
+    # DURING its run, which is the common case whenever a supervisor keeps
+    # working while it fans out. Observed 2026-07-26: two read-only explorer
+    # subagents were both flagged for a file the parent wrote while they ran.
+    #
+    # edit_verify_async.record_edit now stamps each edit with the agent_id from
+    # its PostToolUse payload (absent = main thread), so ownership is recorded
+    # rather than guessed. Require a positive match: an edit this subagent
+    # cannot be SHOWN to own is not its problem. Unattributed edits (written
+    # before this change, or by the main thread) are therefore ignored — the
+    # check goes quiet rather than blaming whoever happened to be running.
+    this_agent = hook_input.get("agent_id")
+    if not this_agent:
+        # Cannot identify the subagent → cannot attribute anything to it.
+        sys.exit(0)
+
     unverified = []
     for edit in ledger.get("edits", []):
+        if str(edit.get("agent_id") or "") != str(this_agent):
+            continue
         ts = edit.get("timestamp", 0)
         if ts > last_verified and ts >= start_floor:
             ext = os.path.splitext(edit.get("file", ""))[1].lower()

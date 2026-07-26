@@ -1,10 +1,19 @@
 """Tests for subagent_verify.py hook.
 
-The hook scopes its unverified-code warning to edits made AFTER the subagent
-started (via its own transcript_path). Firing tests therefore supply a
-transcript whose start is epoch 0, so the synthetic positive-timestamp edits
-count as "made by this subagent" — exercising the `> last_verified` logic.
-No transcript -> the hook fails open (suppresses), which is its own test."""
+The hook reports only edits it can PROVE this subagent authored, matching the
+`agent_id` that edit_verify_async.record_edit stamps onto each ledger entry from
+its PostToolUse payload (absent = main thread).
+
+Superseded contract (pre-2026-07-26): ownership was inferred from a start-time
+floor — "edited after the subagent began" was treated as "edited BY it". That is
+false whenever the parent keeps working while it fans out, which is the normal
+supervisor pattern; two read-only explorers were both flagged for a file the
+parent wrote mid-run. The floor is retained as a secondary bound but is no
+longer what establishes ownership.
+
+Firing tests must therefore both stamp their intended edits with `agent_id` and
+identify the subagent in the hook input — see `_owned` and `_stdin`. An edit the
+hook cannot attribute is nobody's problem and stays silent."""
 
 import json
 import os
@@ -12,6 +21,23 @@ import os
 import pytest
 
 from conftest import SUBAGENT_VERIFY
+
+# Identity of the subagent under test.
+SUB = "test-subagent-aaa"
+
+
+def _owned(*files, timestamp=200):
+    """Ledger edits attributed to SUB — i.e. this subagent's own work."""
+    return [{"file": f, "timestamp": timestamp, "agent_id": SUB} for f in files]
+
+
+def _stdin(transcript=None, **extra):
+    """Hook input identifying this subagent (and optionally its transcript)."""
+    payload = {"agent_id": SUB}
+    if transcript:
+        payload["transcript_path"] = transcript
+    payload.update(extra)
+    return payload
 
 
 # ---------------------------------------------------------------------------
@@ -54,11 +80,11 @@ def test_all_verified_silent(run_hook, make_ledger, subagent_transcript):
 def test_unverified_code_warns(run_hook, make_ledger, subagent_transcript):
     """Unverified .py edit -> hookSpecificOutput with filename."""
     make_ledger(
-        edits=[{"file": "src/app.py", "timestamp": 200}],
+        edits=_owned("src/app.py"),
         last_edit_at=200,
         last_verified_at=100,
     )
-    result = run_hook(SUBAGENT_VERIFY, stdin_json={"transcript_path": subagent_transcript()})
+    result = run_hook(SUBAGENT_VERIFY, stdin_json=_stdin(subagent_transcript()))
     assert result["exit_code"] == 0
     parsed = result["parsed_json"]
     assert parsed is not None
@@ -84,15 +110,11 @@ def test_unverified_md_silent(run_hook, make_ledger, subagent_transcript):
 def test_multiple_files_listed(run_hook, make_ledger, subagent_transcript):
     """3 .ts edits -> all 3 filenames in output."""
     make_ledger(
-        edits=[
-            {"file": "src/a.ts", "timestamp": 200},
-            {"file": "src/b.ts", "timestamp": 200},
-            {"file": "src/c.ts", "timestamp": 200},
-        ],
+        edits=_owned("src/a.ts", "src/b.ts", "src/c.ts"),
         last_edit_at=200,
         last_verified_at=100,
     )
-    result = run_hook(SUBAGENT_VERIFY, stdin_json={"transcript_path": subagent_transcript()})
+    result = run_hook(SUBAGENT_VERIFY, stdin_json=_stdin(subagent_transcript()))
     assert result["exit_code"] == 0
     parsed = result["parsed_json"]
     assert parsed is not None
@@ -106,14 +128,11 @@ def test_multiple_files_listed(run_hook, make_ledger, subagent_transcript):
 def test_dedup(run_hook, make_ledger, subagent_transcript):
     """Same file edited twice -> listed only once."""
     make_ledger(
-        edits=[
-            {"file": "src/dup.py", "timestamp": 200},
-            {"file": "src/dup.py", "timestamp": 200},
-        ],
+        edits=_owned("src/dup.py", "src/dup.py"),
         last_edit_at=200,
         last_verified_at=100,
     )
-    result = run_hook(SUBAGENT_VERIFY, stdin_json={"transcript_path": subagent_transcript()})
+    result = run_hook(SUBAGENT_VERIFY, stdin_json=_stdin(subagent_transcript()))
     assert result["exit_code"] == 0
     parsed = result["parsed_json"]
     assert parsed is not None
@@ -125,15 +144,11 @@ def test_dedup(run_hook, make_ledger, subagent_transcript):
 def test_sorted(run_hook, make_ledger, subagent_transcript):
     """Files appear in alphabetical order."""
     make_ledger(
-        edits=[
-            {"file": "c.py", "timestamp": 200},
-            {"file": "a.py", "timestamp": 200},
-            {"file": "b.py", "timestamp": 200},
-        ],
+        edits=_owned("c.py", "a.py", "b.py"),
         last_edit_at=200,
         last_verified_at=100,
     )
-    result = run_hook(SUBAGENT_VERIFY, stdin_json={"transcript_path": subagent_transcript()})
+    result = run_hook(SUBAGENT_VERIFY, stdin_json=_stdin(subagent_transcript()))
     assert result["exit_code"] == 0
     parsed = result["parsed_json"]
     assert parsed is not None
@@ -147,13 +162,12 @@ def test_sorted(run_hook, make_ledger, subagent_transcript):
 @pytest.mark.unit
 def test_10_file_cap(run_hook, make_ledger, subagent_transcript):
     """15 files -> 10 shown, output contains 'and 5 more'."""
-    edits = [{"file": f"src/file_{i:02d}.py", "timestamp": 200} for i in range(15)]
     make_ledger(
-        edits=edits,
+        edits=_owned(*[f"src/file_{i:02d}.py" for i in range(15)]),
         last_edit_at=200,
         last_verified_at=100,
     )
-    result = run_hook(SUBAGENT_VERIFY, stdin_json={"transcript_path": subagent_transcript()})
+    result = run_hook(SUBAGENT_VERIFY, stdin_json=_stdin(subagent_transcript()))
     assert result["exit_code"] == 0
     parsed = result["parsed_json"]
     assert parsed is not None
@@ -167,15 +181,12 @@ def test_10_file_cap(run_hook, make_ledger, subagent_transcript):
 def test_mixed_verified_unverified(run_hook, make_ledger, subagent_transcript):
     """2 edits before last_verified, 1 after -> only 1 file in output."""
     make_ledger(
-        edits=[
-            {"file": "src/old1.py", "timestamp": 50},
-            {"file": "src/old2.py", "timestamp": 50},
-            {"file": "src/new.py", "timestamp": 200},
-        ],
+        edits=_owned("src/old1.py", "src/old2.py", timestamp=50)
+        + _owned("src/new.py", timestamp=200),
         last_edit_at=200,
         last_verified_at=100,
     )
-    result = run_hook(SUBAGENT_VERIFY, stdin_json={"transcript_path": subagent_transcript()})
+    result = run_hook(SUBAGENT_VERIFY, stdin_json=_stdin(subagent_transcript()))
     assert result["exit_code"] == 0
     parsed = result["parsed_json"]
     assert parsed is not None
@@ -222,25 +233,60 @@ def test_no_transcript_path_suppresses(run_hook, make_ledger):
 
 
 @pytest.mark.regression
-def test_subagent_own_edit_after_start_warns(run_hook, make_ledger, subagent_transcript):
-    """A code edit made AFTER the subagent started IS the subagent's own work
-    and must still be flagged."""
+def test_subagent_own_edit_warns(run_hook, make_ledger, subagent_transcript):
+    """An edit stamped with this subagent's agent_id IS its own work and must
+    still be flagged — the attribution filter must not silence real findings."""
     make_ledger(
-        edits=[
-            {"file": "bin/parent_edit.py", "timestamp": 1000},   # parent, pre-start
-            {"file": "src/subagent_made.py", "timestamp": 6000},  # after start
-        ],
+        edits=[{"file": "bin/parent_edit.py", "timestamp": 1000}]  # unstamped = parent
+        + _owned("src/subagent_made.py", timestamp=6000),
         last_edit_at=6000,
         last_verified_at=0,
     )
     transcript = subagent_transcript(start_iso="1970-01-01T01:23:20Z")  # epoch 5000
-    result = run_hook(SUBAGENT_VERIFY, stdin_json={"transcript_path": transcript})
+    result = run_hook(SUBAGENT_VERIFY, stdin_json=_stdin(transcript))
     assert result["exit_code"] == 0
     parsed = result["parsed_json"]
     assert parsed is not None
     context = parsed["hookSpecificOutput"]["additionalContext"]
     assert "src/subagent_made.py" in context
     assert "bin/parent_edit.py" not in context
+
+
+@pytest.mark.regression
+def test_parent_edit_during_subagent_run_not_attributed(
+    run_hook, make_ledger, subagent_transcript
+):
+    """The 2026-07-26 case the start-time floor could never catch: the parent
+    edits a file WHILE the subagent runs. Its timestamp is after the subagent
+    started, so the floor admits it, but it is not the subagent's work. Only
+    attribution can reject it — two read-only explorers were flagged this way."""
+    make_ledger(
+        # Both after the subagent's start (epoch 5000); only one is the subagent's.
+        edits=[{"file": "bin/parent_wrote_midrun.py", "timestamp": 6000}]
+        + _owned("src/subagent_made.py", timestamp=6001),
+        last_edit_at=6001,
+        last_verified_at=0,
+    )
+    transcript = subagent_transcript(start_iso="1970-01-01T01:23:20Z")  # epoch 5000
+    result = run_hook(SUBAGENT_VERIFY, stdin_json=_stdin(transcript))
+    assert result["exit_code"] == 0
+    context = result["parsed_json"]["hookSpecificOutput"]["additionalContext"]
+    assert "bin/parent_wrote_midrun.py" not in context
+    assert "src/subagent_made.py" in context
+
+
+@pytest.mark.regression
+def test_no_agent_id_suppresses(run_hook, make_ledger, subagent_transcript):
+    """No agent_id in the hook input -> the subagent cannot be identified, so
+    nothing can be attributed to it. Suppress rather than blame whoever ran."""
+    make_ledger(
+        edits=_owned("src/app.py"),
+        last_edit_at=200,
+        last_verified_at=100,
+    )
+    result = run_hook(SUBAGENT_VERIFY, stdin_json={"transcript_path": subagent_transcript()})
+    assert result["exit_code"] == 0
+    assert result["stdout"].strip() == ""
 
 
 # ---------------------------------------------------------------------------

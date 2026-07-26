@@ -153,12 +153,18 @@ def test_gate_after_clean(run_hook, ledger_path):
 
 @pytest.mark.unit
 def test_subagent_after_dirty(run_hook, ledger_path, subagent_transcript):
-    """Subagent verify on dirty ledger produces warning output. Transcript
-    starts at epoch 0 so the edit (recorded at real `now`) counts as made
-    during this subagent's run."""
-    run_hook(EDIT_VERIFY_ASYNC, {"tool_name": "Edit", "tool_input": {"file_path": "/tmp/test/x.py"}})
+    """Subagent verify on dirty ledger produces warning output.
 
-    result = run_hook(SUBAGENT_VERIFY, {"transcript_path": subagent_transcript()})
+    Both calls carry the same agent_id: since 2026-07-26 the hook reports only
+    edits it can prove this subagent authored, so the edit must be recorded
+    under that identity for it to be attributable back. The transcript starting
+    at epoch 0 keeps the secondary time bound satisfied."""
+    agent = "test-subagent-dirty"
+    run_hook(EDIT_VERIFY_ASYNC, {"tool_name": "Edit", "agent_id": agent,
+                                 "tool_input": {"file_path": "/tmp/test/x.py"}})
+
+    result = run_hook(SUBAGENT_VERIFY, {"transcript_path": subagent_transcript(),
+                                        "agent_id": agent})
 
     assert result["exit_code"] == 0
     assert result["stdout"].strip() != ""
