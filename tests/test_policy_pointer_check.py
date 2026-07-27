@@ -120,6 +120,42 @@ def test_variable_pointer_under_missing_directory_still_fails(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# file:line citations
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "suffix",
+    [":157", ":157:4", ":1", ":157.", ":157,"],
+)
+def test_line_citation_suffix_is_stripped(tmp_path, suffix):
+    """CLAUDE.md's review rules mandate citing `file:line`, so the gate must
+    resolve the file and ignore the locator. Before this, a policy-compliant
+    citation was reported as a dangling pointer and blocked its own edit."""
+    doc = _doc(tmp_path, f"See `~/.claude/bin/policy_pointer_check.py{suffix}` for the rule.\n")
+    assert ppc.check_doc(doc) == []
+
+
+@pytest.mark.unit
+def test_line_citation_on_missing_file_still_fails(tmp_path):
+    """Stripping the locator must not launder a dangling path (positive
+    control: without this, the rule above could be 'ignore anything with a
+    colon')."""
+    doc = _doc(tmp_path, "See `~/.claude/bin/no-such-tool-9f31.py:157` for the rule.\n")
+    missing = ppc.check_doc(doc)
+    assert len(missing) == 1
+    assert "no-such-tool-9f31.py" in missing[0][1]
+
+
+@pytest.mark.unit
+def test_port_like_suffix_is_not_a_path(tmp_path):
+    """A trailing number that is NOT a line locator still resolves the stem;
+    the gate cannot tell :8787 from :157 and must not try."""
+    assert ppc._normalize("~/.claude/bin/serve.py:8787") == "~/.claude/bin/serve.py"
+
+
+# ---------------------------------------------------------------------------
 # Skip mechanisms
 # ---------------------------------------------------------------------------
 

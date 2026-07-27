@@ -93,13 +93,22 @@ REL_RE = re.compile(
 )
 
 
+# A `file:line` / `file:line:col` citation suffix. CLAUDE.md's review rules
+# mandate citing "concrete file/line references", so this shape appears in any
+# doc that follows policy; without stripping it the whole citation is treated
+# as a filename and can never resolve.
+_LINECOL_RE = re.compile(r":\d+(?::\d+)?$")
+
+
 def _normalize(raw: str) -> str:
     """Strip trailing markdown/sentence punctuation a path regex may have captured.
 
     Quotes are included: a path quoted inside a shell snippet ("…/index.ts")
-    otherwise keeps its closing quote and can never resolve.
+    otherwise keeps its closing quote and can never resolve. A trailing
+    `:<line>[:<col>]` citation is stripped before the punctuation pass, so
+    `bin/claude_run:157` is checked as `bin/claude_run`.
     """
-    return raw.rstrip(".,;:\"'")
+    return _LINECOL_RE.sub("", raw.rstrip(".,;:\"'"))
 
 
 def _resolve(raw: str, base: Path) -> Path:

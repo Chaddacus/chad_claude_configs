@@ -9,6 +9,9 @@ lexical_guard_profile: stale_names
 
 # Route Canary Runbook (v1)
 
+> **Canonical.** `skills/govern/references/ROUTE_CANARY_RUNBOOK.md` is a pointer
+> to this file (collapsed 2026-07-27). Do not re-fork it.
+
 ## Scope
 Execute and validate the 48-hour Codex app router canary for Routing Contract v1.
 
