@@ -8,7 +8,7 @@ allowed-tools: Read, Write, Edit, Bash, Grep, Glob, Task, WebFetch, TaskCreate, 
 
 # /audit — Enterprise Maturity Audit
 
-You are the autonomous enterprise audit system. You assess codebases against the 12-category rubric in `~/.claude/rules/enterprise-rubric.md`, fix gaps using `/build`, gate every round on E2E tests, and repeat until the codebase meets enterprise standards.
+You are the autonomous enterprise audit system. You assess codebases against the 12-category rubric in `~/.claude/skills/audit/references/enterprise-maturity-rubric-generic.md`, fix gaps using `/build`, gate every round on E2E tests, and repeat until the codebase meets enterprise standards.
 
 ## Parse Arguments
 
@@ -81,7 +81,7 @@ Also check for project-level CLAUDE.md for additional context (test commands, ar
 
 ### Step 2: Read the Rubric
 
-Read `~/.claude/rules/enterprise-rubric.md` to get the full rubric with all 12 categories, automated checks, scoring rules, and fix patterns.
+Read `~/.claude/skills/audit/references/enterprise-maturity-rubric-generic.md` to get the full rubric with all 12 categories, automated checks, scoring rules, and fix patterns.
 
 ### Step 3: Execute Automated Checks
 

@@ -17,7 +17,7 @@ Scan for new Claude Code patterns from the community, diff against current setup
 **Report only:** `/ecosystem-update --dry-run` — fetches and scores but makes no changes
 **Professional / public:** `/ecosystem-update --professional` (aka "professional variant", "public variant", "chadacus variant") — generate the standard report, then render the scrubbed public version via the chadacus.dev pipeline. See "Professional Variant" section below.
 
-**Output:** `~/.claude/reports/ecosystem/YYYY-MM-DD.md`
+**Output:** `~/.claude/reports/ecosystem/{YYYY-MM-DD}.md`
 
 ---
 
@@ -257,17 +257,17 @@ The professional variant strips Chad-internal language ("this is how it would ap
 
 ### Pipeline
 
-1. **Generate the standard report** — run Steps 1–7 above to produce `~/.claude/reports/ecosystem/YYYY-MM-DD.md`. Skip Step 8 (auto-implement) on professional runs unless explicitly asked — public output is the goal, not local config changes.
+1. **Generate the standard report** — run Steps 1–7 above to produce `~/.claude/reports/ecosystem/{YYYY-MM-DD}.md`. Skip Step 8 (auto-implement) on professional runs unless explicitly asked — public output is the goal, not local config changes.
 2. **Render the public version** — invoke the chadacus.dev renderer:
    ```bash
-   python3 /Users/chadsimon/code/chadacus.dev/scripts/render_ecosystem.py
+   python3 /Users/chadsimon/chad_personal/chadacus.dev/scripts/render_ecosystem.py
    ```
    This reads every dated md report under `~/.claude/reports/ecosystem/`, scrubs Chad-perspective phrases via `scripts/parse_findings.py` (STRONG markers drop the whole clause, WEAK markers strip phrases inline), and writes:
    - `chadacus.dev/public/ecosystem-update/YYYY-MM-DD/index.html` (public)
    - `chadacus.dev/public/ecosystem-update/YYYY-MM-DD/internal/index.html` (Chad-POV mirror)
    - `chadacus.dev/public/ecosystem-update/latest/` (symlink-style)
    - `chadacus.dev/public/ecosystem-update/index.html` (rolled-up index)
-3. **Deploy (optional)** — `bash /Users/chadsimon/code/chadacus.dev/scripts/deploy.sh` rsyncs to the Linode VPS. Only run if the user asks to publish.
+3. **Deploy (optional)** — `bash /Users/chadsimon/chad_personal/chadacus.dev/scripts/deploy.sh` rsyncs to the Linode VPS. Only run if the user asks to publish.
 4. **Summary output** — when the user wants a Zoom-channel summary, derive it from the structured findings in the public render (TL;DR + Quick Wins/Build Queue titles + source links). No Chad-internal markers.
 
 ### Scrubber surface

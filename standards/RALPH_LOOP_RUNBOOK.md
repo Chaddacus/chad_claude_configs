@@ -14,7 +14,7 @@ lexical_guard_profile: stale_names
 > (`build_closure` records `postflight_executed:false`; no consumer blocks on
 > it). Live-path R3/R4 verification is owned by planning-gate + evidence-backed
 > track closure (+ the CP6 outer loop when driving). Known dead refs below:
-> the `/Users/chadsimon/.claude/tests/postflight` pytest target no longer
+> the `/Users/chadsimon/.claude/tests/postflight` pytest target no longer <!-- pointer-check:skip -->
 > exists, and `state/postflight_runs/` is created only when a claude_run run
 > actually executes.
 
@@ -68,7 +68,7 @@ bash -n /Users/chadsimon/.claude/bin/claude_run
 python3 -m py_compile /Users/chadsimon/.claude/bin/ralph_done_loop.py
 
 # Focused reliability tests.
-pytest -q /Users/chadsimon/.claude/tests/postflight
+pytest -q /Users/chadsimon/.claude/tests/postflight  <!-- pointer-check:skip -->
 ```
 
 ## Canary Checks
@@ -87,8 +87,8 @@ pytest -q /Users/chadsimon/.claude/tests/postflight
 ## Acceptance Predicate Command
 ```bash
 python3 /Users/chadsimon/.claude/bin/postflight_acceptance_check.py \
-  --run-summary /Users/chadsimon/.claude/state/postflight_runs/<task>/<track>/<run>/run_summary.json \
-  --out /Users/chadsimon/.claude/state/postflight_runs/<task>/<track>/<run>/acceptance_check.json \
+  --run-summary /Users/chadsimon/.claude/state/postflight_runs/<task>/<track>/<run>/run_summary.json \  <!-- pointer-check:skip -->
+  --out /Users/chadsimon/.claude/state/postflight_runs/<task>/<track>/<run>/acceptance_check.json \  <!-- pointer-check:skip -->
   --mode enforce
 ```
 

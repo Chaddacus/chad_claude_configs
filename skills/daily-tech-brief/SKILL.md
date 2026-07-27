@@ -19,7 +19,7 @@ Use this skill when you need a short newsletter-style issue that aggregates publ
 - Research papers
 
 The output is a dated Markdown issue at:
-- `/Users/chadsimon/code2/docs/ai-briefs/YYYY-MM-DD.md`
+- `/Users/chadsimon/code2/docs/ai-briefs/{YYYY-MM-DD}.md`
 
 ## Workflow
 

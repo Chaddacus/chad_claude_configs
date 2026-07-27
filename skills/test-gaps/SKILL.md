@@ -22,7 +22,7 @@ This is **on-demand only**. No cron, no daemon, no background worker. Run it whe
 ```bash
 /test-gaps                              # cwd, threshold 60%, last 7 days
 /test-gaps --threshold 80 --days 14     # tighter bar, longer window
-/test-gaps --repo ~/code/some-other-project
+/test-gaps --repo ~/code/some-other-project  <!-- pointer-check:skip -->
 /test-gaps --no-run                     # reuse last coverage report (skip pytest/jest run)
 ```
 

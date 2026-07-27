@@ -32,7 +32,7 @@ TWILIO_TO_NUMBER="+15557654321"
 ```
 
 ### WhatsApp
-Set variables in `~/.config/codex/secrets/whatsapp.env`:
+Set variables in `~/.config/codex/secrets/whatsapp.env`:  <!-- pointer-check:skip -->
 ```bash
 META_WHATSAPP_ACCESS_TOKEN="your_whatsapp_cloud_access_token"
 META_WHATSAPP_PHONE_NUMBER_ID="123456789012345"

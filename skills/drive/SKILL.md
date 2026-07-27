@@ -229,7 +229,7 @@ LOOP:
        - Check browser_console_messages for JS errors
        - **If `verification_hints.required: true` (testing-standard.md v1.0 — `browser-e2e`
          breadth required by `test_breadth_check` gate):** do NOT skip on Playwright unavailability.
-         Bring it up via Sentinel (`docker compose up -d` from `~/code/sentinel`) or fail closed
+         Bring it up via Sentinel (`docker compose up -d` from `~/chad_work/sentinel`) or fail closed
          with `--breadth-bypass <reason>` recorded in track state. The gate will block slice
          closure otherwise.
        - If `required` is absent/false: advisory — skip if dev server unavailable or Playwright

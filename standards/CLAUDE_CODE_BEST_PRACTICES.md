@@ -273,7 +273,7 @@ Boris Cherny created Claude Code. These are his own published tips, fetched via 
 ## Conformance map (filled by audit)
 
 Filled 2026-07-04 by the runtime audit (originally
-`/Users/chadsimon/code/audits/claude-runtime-2026-07/AUDIT.md` — that file no
+`/Users/chadsimon/code/audits/claude-runtime-2026-07/AUDIT.md` — that file no  <!-- pointer-check:skip -->
 longer exists on disk, 2026-07-16 audit M8; the 2026-07-16 config-plane audit
 in session history supersedes it as the latest grounded conformance pass).
 

@@ -9,11 +9,14 @@ lexical_guard_profile: stale_names
 
 # Adaptive Memory Runbook
 
-> **Status (2026-07-16 audit M8): LEGACY.** The codex-mem CLI this runbook
-> operates (`/Users/chadsimon/code/codex-mem/dist/cli.js`) and the incident
-> dir (`~/.claude-mem/incidents/`) no longer exist on disk. Live memory is
-> the two-tier native-markdown + omni-mem stack (see REFERENCE_INDEX.md).
-> Kept for historical procedure reference only.
+> **Status (2026-07-16 audit M8, paths re-checked 2026-07-26): LEGACY.** The
+> incident dir (`~/.claude-mem/incidents/`) does not exist on disk <!-- pointer-check:skip -->
+> — it is created only by a `recover`/`repair-db` run.
+> The codex-mem CLI this runbook operates still resolves, at
+> `/Users/chadsimon/chad_work/codex-mem/dist/cli.js` (the tree moved out of
+> `~/code/`; the M8 note predates the move and read as deleted).
+> Live memory is the two-tier native-markdown + omni-mem stack (see
+> REFERENCE_INDEX.md). Kept for historical procedure reference only.
 
 ## Purpose
 Operational guide for codex-mem preference adaptation, maintenance, and incident response.
@@ -94,9 +97,9 @@ Degraded runtime signals must be surfaced explicitly in execution evidence. Do n
 
 ## Health Checks
 
-1. `node /Users/chadsimon/code/codex-mem/dist/cli.js status --json`
-2. `node /Users/chadsimon/code/codex-mem/dist/cli.js daemon-status --json`
-3. If daemon metadata is missing, run `node /Users/chadsimon/code/codex-mem/dist/cli.js ensure-daemon --json`
+1. `node /Users/chadsimon/chad_work/codex-mem/dist/cli.js status --json`
+2. `node /Users/chadsimon/chad_work/codex-mem/dist/cli.js daemon-status --json`
+3. If daemon metadata is missing, run `node /Users/chadsimon/chad_work/codex-mem/dist/cli.js ensure-daemon --json`
 4. If daemon health is degraded, inspect the structured error code:
    - `MEMORY_DAEMON_UNAVAILABLE`
    - `MEMORY_DB_CORRUPT`
@@ -105,18 +108,18 @@ Degraded runtime signals must be surfaced explicitly in execution evidence. Do n
 ## Corruption Incident Flow
 
 1. Stop normal runtime owners. Do not run more MCP/CLI retrieval traffic against the live store.
-2. Preserve the current live state. `recover` and `repair-db` now create an incident bundle under `~/.claude-mem/incidents/` containing:
+2. Preserve the current live state. `recover` and `repair-db` now create an incident bundle under `~/.claude-mem/incidents/` <!-- pointer-check:skip --> (created on first incident) containing:
    - live DB/WAL/SHM copies
    - status report
    - sqlite quick check output
    - runtime lock state
    - process list
 3. Prefer snapshot restore first:
-   - `node /Users/chadsimon/code/codex-mem/dist/cli.js recover --mode db --json`
+   - `node /Users/chadsimon/chad_work/codex-mem/dist/cli.js recover --mode db --json`
 4. If no valid healthy snapshot exists, fall back to in-place salvage:
-   - `node /Users/chadsimon/code/codex-mem/dist/cli.js repair-db --mode db --json`
+   - `node /Users/chadsimon/chad_work/codex-mem/dist/cli.js repair-db --mode db --json`
 5. Rebuild the query layer if recovery succeeds:
-   - `node /Users/chadsimon/code/codex-mem/dist/cli.js rebuild-query-layer --json`
+   - `node /Users/chadsimon/chad_work/codex-mem/dist/cli.js rebuild-query-layer --json`
 6. Re-run both health checks before resuming normal Codex sessions.
 
 ## Snapshot Rules

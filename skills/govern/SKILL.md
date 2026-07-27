@@ -33,7 +33,7 @@ and gates closure on convergence and postflight evidence.
 | `--route R{n}` | Override auto-classification (still enforces route constraints) |
 | `--dry-run` | Classify and show plan, but do not execute |
 | `--no-team` | Force single-lane execution even for R3/R4 |
-| `--via-hermes` | Route the whole task through Hermes phase orchestrator (`~/code/hermes`, REST `:3345`) instead of in-session dispatch. R3/R4 only. Greenfield uses 8 phases (plan/design/backend/frontend/test/e2e/security/validate); refactor uses 5 (index/plan/refactor/test/validate). Falls back to standard dispatch if Hermes is unreachable and `--strict-hermes` is not set. |
+| `--via-hermes` | Route the whole task through Hermes phase orchestrator (`~/chad_work/hermes`, REST `:3345`) instead of in-session dispatch. R3/R4 only. Greenfield uses 8 phases (plan/design/backend/frontend/test/e2e/security/validate); refactor uses 5 (index/plan/refactor/test/validate). Falls back to standard dispatch if Hermes is unreachable and `--strict-hermes` is not set. |
 | `--worker-runtime {claude\|goose\|opencode}` | Override the dispatch profile's `worker_runtime` for this run. `goose` routes through `~/.claude/bin/goose_dispatch.py` (ACP → Pro/Max subscription, no per-token cost). `opencode` routes through anthropic-concurrency-system. Default inherits from `route_manifest.json` profile. |
 
 ## Canonical Inputs

@@ -12,7 +12,7 @@ You are the security-audit orchestrator. You score a target codebase against an 
 
 This skill is the security analogue of `/audit`. Where `/audit` uses the generic 12-category enterprise rubric, `/security-audit` uses OpenShield's two-track rubric (AppSec + AI-threat) and the same policy-pack model for compliance frames.
 
-OpenShield repo: `/Users/chadsimon/code/openshield`. Canonical front-door CLI: `openshield audit`.
+OpenShield repo: `/Users/chadsimon/chad_work/openshield`. Canonical front-door CLI: `openshield audit`.
 
 ## Parse Arguments
 
@@ -47,13 +47,13 @@ Also detect:
 Run once, in order, stopping when one works:
 
 1. `which openshield` — globally installed binary
-2. `ls /Users/chadsimon/code/openshield/dist/cli/index.js` — local build exists
-3. `cd /Users/chadsimon/code/openshield && npm run build` — build from source
+2. `ls /Users/chadsimon/chad_work/openshield/dist/cli/index.js` — local build exists  <!-- pointer-check:skip -->
+3. `cd /Users/chadsimon/chad_work/openshield && npm run build` — build from source
 
 Define a reusable invocation:
 ```bash
-OPENSHIELD_BIN="npx tsx /Users/chadsimon/code/openshield/packages/cli/src/index.ts"
-# or after build: OPENSHIELD_BIN="node /Users/chadsimon/code/openshield/dist/cli/index.js"
+OPENSHIELD_BIN="npx tsx /Users/chadsimon/chad_work/openshield/packages/cli/src/index.ts"
+# or after build: OPENSHIELD_BIN="node /Users/chadsimon/chad_work/openshield/dist/cli/index.js"  <!-- pointer-check:skip -->
 ```
 
 If openshield is missing and cannot be built (authority boundary — deleted repo), stop and tell the user.
@@ -208,8 +208,8 @@ Pack selection rules when the user doesn't specify:
 
 - `references/rule-fix-recipes.md` — rule_id → fix-recipe lookup table.
 - `references/pack-selection.md` — policy-pack decision tree.
-- `/Users/chadsimon/code/openshield/README.md` — full openshield docs.
-- `/Users/chadsimon/code/openshield/CLAUDE.md` — openshield-specific conventions.
+- `/Users/chadsimon/chad_work/openshield/README.md` — full openshield docs.
+- `/Users/chadsimon/chad_work/openshield/CLAUDE.md` — openshield-specific conventions.
 
 ## Memory
 
