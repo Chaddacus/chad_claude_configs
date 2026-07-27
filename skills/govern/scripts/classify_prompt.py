@@ -11,6 +11,13 @@ Must complete in <100ms — no network calls, no heavy imports.
 Output: JSON envelope with additionalContext (route status + policy blocks).
 """
 
+# PEP 604 annotations (`str | None`) are evaluated at def time on the 3.9
+# interpreter this hook runs under, so they raise TypeError without this
+# import — and a hook that raises produces no envelope at all, silently
+# disabling classification for every prompt. route_classifier.py carries the
+# same import for the same reason.
+from __future__ import annotations
+
 import json
 import os
 import re
@@ -28,7 +35,9 @@ from hook_profile import should_run
 # NOTE: the should_run() profile gate is applied inside main(), not at import
 # time. An import-time sys.exit(0) made this module unimportable as a library
 # (tests, the shared classifier) and killed host processes silently.
-from route_classifier import classify, count_file_mentions, deliverable_kind
+from route_classifier import (
+    classify, count_file_mentions, deliverable_kind, is_continuation,
+)
 
 
 def classify_prompt(prompt: str) -> dict:
@@ -190,6 +199,42 @@ def _read_hook_payload() -> tuple[str, str]:
     return prompt, session_id
 
 
+def _last_session_route(session_id: str) -> str | None:
+    """Most recent non-continuation route recorded for this session.
+
+    Reads the tail of route_decisions.jsonl rather than the whole file — the
+    log is ~1MB and this runs on the prompt hot path. Returns None when the
+    session has no prior decision (first prompt of a session).
+    """
+    if not session_id or session_id == "default":
+        return None
+    log = Path(
+        os.environ.get("CLAUDE_HOME", os.path.expanduser("~/.claude"))
+    ) / "state" / "route_decisions.jsonl"
+    try:
+        with log.open("rb") as f:
+            f.seek(0, os.SEEK_END)
+            size = f.tell()
+            window = min(size, 256 * 1024)
+            f.seek(size - window)
+            tail = f.read().decode("utf-8", errors="ignore")
+    except OSError:
+        return None
+    for line in reversed(tail.splitlines()):
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue  # partial first line from the window cut
+        if row.get("session_id") != session_id:
+            continue
+        if row.get("inherited_from_continuation"):
+            continue  # do not chain inheritance off another continuation
+        route = row.get("route_hint")
+        if route:
+            return str(route)
+    return None
+
+
 def main():
     # Profile gate (moved from import time so the module stays importable).
     if not should_run("classify_prompt"):
@@ -199,6 +244,24 @@ def main():
 
     result = classify_prompt(prompt)
     result["deliverable_kind"] = deliverable_kind(prompt)
+
+    # Continuation handling. A bare "yes"/"both"/"go ahead" is the user
+    # answering the turn already in flight, not a new ambiguous request — but
+    # is_vague (<5 words, no files) cannot see that and routed it R5, pulling
+    # the full governance block AND telling the agent to clarify ambiguity the
+    # user had just resolved. Inherit the route the session was already on so
+    # a continuation authorizing R4 work keeps its R4 gates; fall back to R1
+    # when there is no prior turn to continue.
+    inherited = False
+    if is_continuation(prompt):
+        prior = _last_session_route(session_id)
+        result["route_hint"] = prior or "R1"
+        result["governance_recommended"] = (result["route_hint"] in ("R3", "R4"))
+        result["reason"] = (
+            f"continuation of {prior} turn" if prior
+            else "continuation with no prior turn"
+        )
+        inherited = True
 
     # --- Slice 5: bandit enabler (additive instrumentation) -------------------
     # decision_id is the per-prompt join-key tying this routing decision to the
@@ -238,6 +301,7 @@ def main():
                 "deliverable_kind": result["deliverable_kind"],
                 "word_count": word_count,
                 "file_count": file_count,
+                "inherited_from_continuation": inherited,
             }, sort_keys=True) + "\n")
     except OSError:
         pass
