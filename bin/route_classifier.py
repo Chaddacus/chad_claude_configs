@@ -20,6 +20,14 @@ Policy shape:
   change surface. Routing is not permissioning; an R1 answer mutates nothing.
 - Vague prompts (<5 words, no file mentions, not a simple question) -> R5,
   matching the track runtime's historical is_vague contract.
+- Continuations ("yes", "both", "go ahead") are detected here by
+  is_continuation() but NOT routed here. Deciding what a continuation means
+  requires the prior turn, and classify() is a pure function of text with no
+  session access. The UserPromptSubmit hook owns that step: it inherits the
+  session's last route from route_decisions.jsonl. This asymmetry is
+  deliberate, not the H4 drift this module was created to end — the hook has
+  strictly more context than the track runtime, and a track objective is
+  never a bare continuation.
 - Every call returns classification_evidence so all consumers share one set
   of extracted facts.
 
