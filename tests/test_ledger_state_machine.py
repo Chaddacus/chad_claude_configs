@@ -100,12 +100,16 @@ def test_multi_edit_single_verify(run_hook, ledger_path):
 
 
 @pytest.mark.unit
-def test_gate_after_dirty(run_hook, ledger_path, fake_project, session_id):
+def test_gate_after_dirty(run_hook, ledger_path, fake_project, session_id, subagent_transcript):
     """Completion gate on dirty ledger reads ledger and runs without crashing.
 
     Uses a fake project with a Makefile test target so the gate resolves
     a command. The gate should produce output (pass or fail) and update
     the ledger with a verification entry.
+
+    The `--event task-completed` path resolves a subagent start floor from the
+    hook payload and exits 0 silently when it cannot, so the transcript on
+    stdin is what lets this reach the verification path at all.
     """
     # Record an edit to make ledger dirty
     run_hook(EDIT_VERIFY_ASYNC, {"tool_name": "Edit", "tool_input": {"file_path": "/tmp/test/x.py"}})
@@ -119,6 +123,10 @@ def test_gate_after_dirty(run_hook, ledger_path, fake_project, session_id):
     env["CLAUDE_SESSION_ID"] = session_id
     result = subprocess.run(
         [sys.executable, str(COMPLETION_GATE), "--event", "task-completed"],
+        input=json.dumps({
+            "transcript_path": subagent_transcript(),
+            "agent_id": "test-agent-gate",
+        }),
         capture_output=True,
         text=True,
         env=env,
@@ -140,12 +148,20 @@ def test_gate_after_dirty(run_hook, ledger_path, fake_project, session_id):
 
 
 @pytest.mark.unit
-def test_gate_after_clean(run_hook, ledger_path):
-    """Completion gate on clean ledger exits 0 with no output."""
+def test_gate_after_clean(run_hook, ledger_path, subagent_transcript):
+    """Completion gate on clean ledger exits 0 with no output.
+
+    Carries a transcript so the silence is attributable to the CLEAN LEDGER.
+    With an empty payload the task path bails before ever reading the ledger,
+    and this would pass no matter what state the ledger was in."""
     run_hook(EDIT_VERIFY_ASYNC, {"tool_name": "Edit", "tool_input": {"file_path": "/tmp/test/x.py"}})
     run_hook(EDIT_VERIFY_ASYNC, {"tool_name": "Bash", "tool_input": {"command": "npm test"}, "tool_response": {"exit_code": 0}})
 
-    result = run_hook(COMPLETION_GATE, {}, args=["--event", "task-completed"])
+    result = run_hook(
+        COMPLETION_GATE,
+        {"transcript_path": subagent_transcript(), "agent_id": "test-agent-clean"},
+        args=["--event", "task-completed"],
+    )
 
     assert result["exit_code"] == 0
     assert result["stdout"].strip() == ""
@@ -184,7 +200,7 @@ def test_subagent_after_clean(run_hook, ledger_path, subagent_transcript):
 
 
 @pytest.mark.unit
-def test_full_workflow(run_hook, ledger_path, fake_project, session_id):
+def test_full_workflow(run_hook, ledger_path, fake_project, session_id, subagent_transcript):
     """Full workflow: edit, edit, verify fail, edit, verify pass, gate.
 
     Sequence: edit(a.py) -> edit(b.py) -> verify(fail) -> edit(c.py) ->
@@ -220,8 +236,10 @@ def test_full_workflow(run_hook, ledger_path, fake_project, session_id):
     assert ledger["verified_clean"] is True
     assert len(ledger["verifications"]) == 2
 
-    # Phase 5: completion gate — already clean, should exit silently
-    # Use a fake project dir so gate has something to resolve
+    # Phase 5: completion gate — already clean, should exit silently.
+    # The payload matters: without a transcript the task path exits 0 silently
+    # no matter what the ledger says, so this assertion would pass vacuously
+    # and stop testing "clean ledger => skip" entirely.
     project_dir = fake_project({"Makefile": "\ntest:\n\techo ok\n"})
 
     env = os.environ.copy()
@@ -229,6 +247,10 @@ def test_full_workflow(run_hook, ledger_path, fake_project, session_id):
     env["CLAUDE_SESSION_ID"] = session_id
     result = subprocess.run(
         [sys.executable, str(COMPLETION_GATE), "--event", "task-completed"],
+        input=json.dumps({
+            "transcript_path": subagent_transcript(),
+            "agent_id": "test-agent-workflow",
+        }),
         capture_output=True,
         text=True,
         env=env,
