@@ -18,12 +18,20 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def _cleanup_route_files():
+    """Remove both artifacts a gate run leaves behind: the route file the test
+    writes, and the audit file write_audit() emits into state/ when the gate
+    blocks. The audit half was missing and had accumulated 308 files."""
     yield
-    for f in glob.glob("/tmp/claude-route-sgtest-*.json"):
-        try:
-            os.unlink(f)
-        except OSError:
-            pass
+    patterns = [
+        "/tmp/claude-route-sgtest-*.json",
+        str(Path.home() / ".claude" / "state" / "stop_gate_audit-sgtest-*.jsonl"),
+    ]
+    for pattern in patterns:
+        for f in glob.glob(pattern):
+            try:
+                os.unlink(f)
+            except OSError:
+                pass
 
 # Direct import of stop_gate via sys.path (same pattern as test_classify_prompt)
 BIN = Path.home() / ".claude" / "bin"

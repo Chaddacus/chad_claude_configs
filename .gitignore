@@ -14,6 +14,9 @@
 
 # Runtime config (NOT settings.local.json — machine-specific)
 !/settings.json
+# Scopes `pytest` run from ~/.claude to tests/; without it collection walks
+# into state/worktrees/ (other repos' worktrees) and errors out.
+!/pytest.ini
 
 # Behavior surfaces (tracked fully)
 !/agents/
