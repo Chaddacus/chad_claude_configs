@@ -174,7 +174,14 @@ def read_deliverable_kind(session_id: str) -> str:
     Trust note: this file can only RELAX the DELIVERABLE pool, never the
     STALL pool. Same-user tampering is the same trust domain as editing this
     gate itself; the ownership/mode/freshness checks kill cross-user and
-    stale-file paths (Codex review findings #3/#4, 2026-06-10)."""
+    stale-file paths (Codex review findings #3/#4, 2026-06-10).
+
+    The candidate list covers "the payload omitted session_id", so ONLY a
+    missing file advances to the next candidate. A file that exists but fails
+    a trust check ends the search at "artifact": advancing past it let the
+    ambient CLAUDE_CODE_SESSION_ID's route file stand in for the rejected
+    one, which relaxed the DELIVERABLE pool via exactly the stale and
+    world-writable paths #3/#4 exist to close (fixed 2026-07-27)."""
     candidates = [
         session_id,
         os.environ.get("CLAUDE_CODE_SESSION_ID"),
@@ -187,18 +194,20 @@ def read_deliverable_kind(session_id: str) -> str:
         path = Path(f"/tmp/claude-route-{sid}.json")
         try:
             st = path.stat()
-            if st.st_uid != os.getuid():
-                continue
-            if st.st_mode & 0o002:  # world-writable
-                continue
-            if time.time() - st.st_mtime > ROUTE_FILE_MAX_AGE_S:
-                continue
-            data = json.loads(path.read_text())
-            kind = data.get("deliverable_kind")
-            if kind in ("advice", "artifact"):
-                return kind
+        except OSError:
+            continue  # no channel for this candidate -> try the next one
+        # From here the channel for this session is decided, pass or fail.
+        if st.st_uid != os.getuid():
+            return "artifact"
+        if st.st_mode & 0o002:  # world-writable
+            return "artifact"
+        if time.time() - st.st_mtime > ROUTE_FILE_MAX_AGE_S:
+            return "artifact"
+        try:
+            kind = json.loads(path.read_text()).get("deliverable_kind")
         except Exception:
-            continue
+            return "artifact"
+        return kind if kind in ("advice", "artifact") else "artifact"
     return "artifact"
 
 
