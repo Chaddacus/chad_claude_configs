@@ -52,6 +52,11 @@ _DOC_GLOBS = (
     "rules/*.md",
     "agents/*.md",
     "skills/*/SKILL.md",
+    # Progressive disclosure moves load-bearing paths OUT of SKILL.md and into
+    # references/. Without this glob, splitting a skill would silently shrink
+    # pointer coverage — the reference file is exactly where a repo path or CLI
+    # entrypoint ends up living.
+    "skills/*/references/*.md",
 )
 
 

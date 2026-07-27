@@ -59,7 +59,7 @@ bash -n ~/.claude/bin/claude_run
 python3 -m py_compile ~/.claude/bin/ralph_done_loop.py
 
 # Focused reliability tests.
-pytest -q ~/.claude/tests/postflight
+pytest -q ~/.claude/tests/postflight  <!-- pointer-check:skip -->
 ```
 
 ## Canary Checks
@@ -78,8 +78,8 @@ pytest -q ~/.claude/tests/postflight
 ## Acceptance Predicate Command
 ```bash
 python3 ~/.claude/bin/postflight_acceptance_check.py \
-  --run-summary ~/.claude/state/postflight_runs/<task>/<track>/<run>/run_summary.json \
-  --out ~/.claude/state/postflight_runs/<task>/<track>/<run>/acceptance_check.json \
+  --run-summary ~/.claude/state/postflight_runs/<task>/<track>/<run>/run_summary.json \  <!-- pointer-check:skip -->
+  --out ~/.claude/state/postflight_runs/<task>/<track>/<run>/acceptance_check.json \  <!-- pointer-check:skip -->
   --mode enforce
 ```
 

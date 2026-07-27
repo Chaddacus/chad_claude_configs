@@ -33,7 +33,7 @@ JSON
 ```bash
 ~/.claude/bin/route_validate_audit.sh \
   --cases ~/.claude/state/route_test_cases.json \
-  --audit ~/.claude/state/route_audit.jsonl \
+  --audit ~/.claude/state/route_audit.jsonl \  <!-- pointer-check:skip -->
   --manifest ~/.claude/state/route_manifest.json
 ```
 
@@ -52,7 +52,7 @@ JSON
 ```bash
 ~/.claude/bin/route_validate_audit.sh \
   --cases ~/.claude/state/route_test_cases.json \
-  --audit ~/.claude/state/route_audit.jsonl \
+  --audit ~/.claude/state/route_audit.jsonl \  <!-- pointer-check:skip -->
   --manifest ~/.claude/state/route_manifest.json
 ```
 

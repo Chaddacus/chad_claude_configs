@@ -251,42 +251,14 @@ Examples:
 
 ## Professional Variant
 
-When the user asks for the **professional**, **public**, or **chadacus** variant — or says "run it for the site" / "the resume version" — they mean: generate the standard report, then run it through the chadacus.dev scrubber/renderer to produce the public-facing version.
+The public-facing run: generate the standard report, then push it through the
+chadacus.dev scrubber/renderer to strip Chad-internal language and publish a
+neutral digest.
 
-The professional variant strips Chad-internal language ("this is how it would apply to chad", named agents, internal paths, slash-commands, harness-specific notes) and outputs a neutral "here's today's updates" digest suitable for the public site, resume material, or a Zoom-channel summary.
+**When the user asks for the professional, public, chadacus, or resume variant —
+or "run it for the site" — read `references/professional-variant.md`.** It
+carries the render/deploy pipeline, the scrubber surface, and the daily-cron
+contract. Skip it on a standard run.
 
-### Pipeline
-
-1. **Generate the standard report** — run Steps 1–7 above to produce `~/.claude/reports/ecosystem/{YYYY-MM-DD}.md`. Skip Step 8 (auto-implement) on professional runs unless explicitly asked — public output is the goal, not local config changes.
-2. **Render the public version** — invoke the chadacus.dev renderer:
-   ```bash
-   python3 /Users/chadsimon/chad_personal/chadacus.dev/scripts/render_ecosystem.py
-   ```
-   This reads every dated md report under `~/.claude/reports/ecosystem/`, scrubs Chad-perspective phrases via `scripts/parse_findings.py` (STRONG markers drop the whole clause, WEAK markers strip phrases inline), and writes:
-   - `chadacus.dev/public/ecosystem-update/YYYY-MM-DD/index.html` (public)
-   - `chadacus.dev/public/ecosystem-update/YYYY-MM-DD/internal/index.html` (Chad-POV mirror)
-   - `chadacus.dev/public/ecosystem-update/latest/` (symlink-style)
-   - `chadacus.dev/public/ecosystem-update/index.html` (rolled-up index)
-3. **Deploy (optional)** — `bash /Users/chadsimon/chad_personal/chadacus.dev/scripts/deploy.sh` rsyncs to the Linode VPS. Only run if the user asks to publish.
-4. **Summary output** — when the user wants a Zoom-channel summary, derive it from the structured findings in the public render (TL;DR + Quick Wins/Build Queue titles + source links). No Chad-internal markers.
-
-### Scrubber surface
-
-The scrubbing logic lives in `chadacus.dev/scripts/parse_findings.py`. STRONG markers (`CHAD_STRONG_MARKERS`) drop entire sentences; WEAK markers neutralize phrases. When the user adds a new internal-only term, update that file — not this skill.
-
-### Daily cron
-
-`chadacus.dev/scripts/daily_runner.sh` is the cron-installed wrapper that runs the skill via `claude --print` and then calls `deploy.sh`. It is the production loop for the public site. Manual `--professional` invocations should match its behavior: run skill → render → (optionally) deploy.
-
----
-
-## Source Reference
-
-| Source | Tier | Signal Type |
-|--------|------|-------------|
-| [awesome-claude-code](https://github.com/hesreallyhim/awesome-claude-code) | 1 | Community catalog |
-| [howborisusesclaudecode.com](https://howborisusesclaudecode.com/) | 1 | Creator tips |
-| [claude-code-best-practice](https://github.com/shanraisshan/claude-code-best-practice) | 1 | Community tips |
-| [arxiv LLM agent search](https://arxiv.org/search/?searchtype=all&query=LLM+agent+coding&order=-announced_date_first) | 2 | Research papers |
-| [awesome-claude-code-toolkit](https://github.com/rohitg00/awesome-claude-code-toolkit) | 2 | Comprehensive catalog |
-| [Claude Code docs](https://code.claude.com/docs/) | 2 | Official features |
+> On professional runs, skip Step 8 (auto-implement) unless explicitly asked —
+> public output is the goal, not local config changes.

@@ -87,6 +87,10 @@ POINTER_WATCHED_GLOBS = [
     str(CLAUDE_HOME / "rules") + "/*.md",
     str(CLAUDE_HOME / "agents") + "/*.md",
     str(CLAUDE_HOME / "skills") + "/*/SKILL.md",
+    # Progressive disclosure pushes load-bearing paths out of SKILL.md into
+    # references/. Gating only SKILL.md would mean splitting a skill silently
+    # moves its pointers out of protection.
+    str(CLAUDE_HOME / "skills") + "/*/references/*.md",
 ]
 POINTER_CHECK_TIMEOUT_S = int(os.environ.get("POLICY_EDIT_GATE_POINTER_TIMEOUT", "15"))
 
