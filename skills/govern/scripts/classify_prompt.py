@@ -60,8 +60,21 @@ def classify_prompt(prompt: str) -> dict:
 # These blocks moved out of ~/.claude/CLAUDE.md on 2026-04-17 to save tokens
 # on R1/R2 prompts where they don't apply. They are injected into the session
 # via UserPromptSubmit additionalContext only when the classified route calls
-# for them. CLAUDE.md retains a minimal stub pointing at this file as the
-# source of truth.
+# for them.
+#
+# 2026-08-10: the global policy was cut over to the Claude Engineering
+# Foundation, so ~/.claude/CLAUDE.md plus ~/.claude/rules/*.md are now the
+# always-on engineering policy. That created a real hazard here — this file
+# was injecting a SECOND governance vocabulary (planning gates, auto_runtime
+# tracks, execution shapes) with no stated relationship to the Standards, so a
+# session received two completion protocols and no precedence between them.
+# R3_R4_GOVERNANCE_GATES now states that precedence explicitly and maps each
+# local tool to the Standard it implements. Keep it that way: when a Standard
+# and a local gate disagree, the Standard wins and the gate is the bug.
+#
+# ANTI_STOP_PATTERNS and ANTI_OVERRUN_PATTERNS are incident-derived refinements
+# of the foundation's autonomy and escalation rules. They use no legacy
+# vocabulary and are carried forward unchanged.
 # ---------------------------------------------------------------------------
 
 ANTI_STOP_PATTERNS = """## Anti-stop patterns (autonomous runs)
@@ -88,21 +101,29 @@ The mirror image of anti-stop. On 2026-06-10 an advisory request became an unrat
 4. **A defensible recommendation is a decision, not a menu.** When the fork is *which approach* for work the user already set in motion and you hold a clear recommendation, take it and continue (state choice + one-line why + reversibility) — do not bounce "A or B?" back. This carve-out does NOT loosen #1: inventing adjacent scope is still a fork you name and do not run."""
 
 
-R3_R4_GOVERNANCE_GATES = """## R3/R4 governed-lanes gates
+R3_R4_GOVERNANCE_GATES = """## R3/R4 governed lanes — how this machine implements the Standards
 
-- Use the governed path: run omni-mem retrieval, use planning-gate skill, satisfy prompt-contract requirements, run validation before closeout.
-- R3/R4 require planning-gate and evidence-backed track closure (auto_runtime update-node --evidence, cycle to OBJECTIVE_COMPLETE). The legacy Ralph postflight chain runs only under claude_run — it is NOT a live gate on this path; do not defer to it.
-- Align before broad execution: explore repo facts first, then resolve only the product/authority ambiguity that cannot be discovered locally.
-- Convert broad work into PRD/story-shaped slices when useful, but revalidate old PRDs, plans, and issue text against current code before trusting them.
-- Prefer vertical slices/tracer bullets over horizontal database-then-API-then-UI phases unless dependencies force a horizontal step.
-- Keep architecture explicit: identify modules/interfaces expected to change, prefer deep modules with simple testable boundaries, and avoid scattering behavior across shallow helpers.
-- R3 defaults to execution_shape=single_lane; bounded_swarm requires explicit justification and reuse-first proof.
-- R4 may use a reviewer-centered bounded_swarm with the same justification requirements.
-- Plans must include a solution ladder (L1_patch, L2_abstraction, L3_operating_surface) and select the highest useful layer.
-- Plans must record existing_primitives_considered, reuse_first_decision, estimated_files_touched, estimated_loc.
-- Plans that exceed the simplicity budget or introduce a new runtime surface without proof must fail closed.
-- finalize_gate.py must return ok=true before R3/R4 work is treated as approved.
-- For R3/R4, produce a manual enterprise scorecard if no automated rubric tool exists."""
+**Precedence:** the nine `~/.claude/rules/*.md` Standards are the engineering policy. \
+Everything below is how THIS machine executes them. Where the wording differs, the \
+Standard controls and the local tool is its implementation, not a second policy to \
+satisfy separately. Do not invent a gate that is not named here.
+
+| Standard | Local implementation on this machine |
+|---|---|
+| Ground before consequential decisions (Execution Orchestration) | `~/.omni-mem/bin/omem search` / `status`; the `ground-task` skill |
+| Plan meaningful work (Execution Orchestration) | the `plan-change` skill; the `planning-gate` skill when a fail-closed planning record is warranted |
+| FAST / MODULE / FULL verification (Verification & Evidence) | `verify-fast`, `verify-module`, `verify-full`; the repo declares its commands in `.claude/verification.json` |
+| Independent review (Execution Orchestration) | the `adversarial-review` skill or the `adversarial-reviewer` agent, fresh context, given the requirement + diff + evidence — never your own reasoning |
+| Evidence current for the final diff (Verification & Evidence) | `~/.claude/skills/planning-gate/scripts/finalize_gate.py` returns ok=true; `~/.claude/bin/auto_runtime.py update-node --evidence` records it |
+
+Lane rules with no direct Standard equivalent:
+
+- Explore repo facts first; then resolve only the product or authority ambiguity that cannot be discovered locally.
+- Revalidate old PRDs, plans, and issue text against current code before trusting them — they are claims, not truth.
+- Prefer vertical slices over horizontal database-then-API-then-UI phases unless a dependency forces the horizontal step.
+- Single lane by default. Parallel work requires a real dependency graph and disjoint write sets (Execution Orchestration, dependency-aware parallelism).
+- Choose the highest useful layer — patch, abstraction, or operating surface — and record which existing primitives you considered and why reuse was rejected.
+- A plan that exceeds the simplicity budget, or adds a new runtime surface without proof it is needed, fails closed (Engineering Constitution: smallest correct change)."""
 
 
 # Product-trigger keywords for product-orchestrator nudge. Mirrored in

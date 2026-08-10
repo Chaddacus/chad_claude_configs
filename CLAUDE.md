@@ -50,7 +50,8 @@ Machine-specific operating layer. The rules above are the engineering standard; 
 
 ## Session wiring
 
-- The `UserPromptSubmit` hook supplies `route_hint` and route-scoped gates. Act on them; they are part of the instruction, not commentary.
+- The `UserPromptSubmit` hook supplies `route_hint` and route-scoped gates. Act on them; they are part of the instruction, not commentary. They are defined in `~/.claude/skills/govern/scripts/classify_prompt.py`, and they are an *implementation* of the rules above, never a second policy: the injected R3/R4 block maps each local gate to the Standard it serves. **If a local gate and a Standard disagree, the Standard controls and the gate is the defect.**
+- This machine also runs local governance tooling that predates the foundation — `planning-gate`, `auto_runtime.py`, `stop_gate.py`, `completion_gate.py`, the `govern` and `runtime-procedures` skills. They remain live and are the concrete mechanism behind the Standards. Satisfy the Standard; use whichever of these the injected block names. Do not treat them as an extra protocol to clear on top.
 - Send a completion notification with `~/.claude/bin/notify_done.sh` before the final response. If that is impossible, say so rather than implying it happened.
 - Agents are bound per tree: `chad-work` inside `~/chad_work`, `chad-personal` inside `~/chad_personal`, `chad-agent` for anything sent as Chad. A repository-scoped agent file wins inside its repository.
 
