@@ -83,13 +83,32 @@ def discover_installed_skills() -> set[str]:
     return names
 
 
+import re
+
+# Pattern to detect Read tool calls targeting a skill's SKILL.md file.
+_SKILL_READ_RE = re.compile(r"skills/([^/]+)/SKILL\.md")
+# Pattern to detect slash-command invocations in user prompts (e.g. "/drive", "/audit --fix").
+_SLASH_CMD_RE = re.compile(r"(?:^|[\s])/([\w-]+)")
+
+
 def scan_transcripts(since: datetime) -> tuple[dict[str, int], dict[str, datetime]]:
-    """Return (invocation_counts, last_invocation_per_skill)."""
+    """Return (invocation_counts, last_invocation_per_skill).
+
+    Detects skill usage via three signals:
+    1. Formal Skill tool invocations (tool_use with name="Skill")
+    2. Read tool calls targeting skills/<name>/SKILL.md (direct file loading)
+    3. Slash-command mentions in user prompts (e.g. "/drive", "/audit")
+    """
     counts: dict[str, int] = defaultdict(int)
     last_seen: dict[str, datetime] = {}
 
     if not PROJECTS_DIR.is_dir():
         return counts, last_seen
+
+    def _record(skill_name: str, ts: datetime) -> None:
+        counts[skill_name] += 1
+        if skill_name not in last_seen or ts > last_seen[skill_name]:
+            last_seen[skill_name] = ts
 
     for project in PROJECTS_DIR.iterdir():
         if not project.is_dir():
@@ -106,19 +125,40 @@ def scan_transcripts(since: datetime) -> tuple[dict[str, int], dict[str, datetim
                         if ts is None or ts < since:
                             continue
                         msg = rec.get("message", {})
-                        if msg.get("role") != "assistant":
+                        role = msg.get("role", "")
+
+                        # Signal 3: slash-command in user prompts
+                        if role == "human":
+                            for item in msg.get("content", []) or []:
+                                text = ""
+                                if isinstance(item, str):
+                                    text = item
+                                elif isinstance(item, dict) and item.get("type") == "text":
+                                    text = item.get("text", "")
+                                if text:
+                                    for m in _SLASH_CMD_RE.finditer(text):
+                                        _record(m.group(1), ts)
+
+                        if role != "assistant":
                             continue
                         for item in msg.get("content", []) or []:
-                            if (
-                                item.get("type") == "tool_use"
-                                and item.get("name") == "Skill"
-                            ):
-                                skill_name = (item.get("input") or {}).get("skill")
-                                if not skill_name:
-                                    continue
-                                counts[skill_name] += 1
-                                if skill_name not in last_seen or ts > last_seen[skill_name]:
-                                    last_seen[skill_name] = ts
+                            if item.get("type") != "tool_use":
+                                continue
+                            tool_name = item.get("name", "")
+                            tool_input = item.get("input") or {}
+
+                            # Signal 1: formal Skill tool invocation
+                            if tool_name == "Skill":
+                                skill_name = tool_input.get("skill")
+                                if skill_name:
+                                    _record(skill_name, ts)
+
+                            # Signal 2: Read tool targeting a skill's SKILL.md
+                            elif tool_name == "Read":
+                                file_path = tool_input.get("file_path", "")
+                                m = _SKILL_READ_RE.search(file_path)
+                                if m:
+                                    _record(m.group(1), ts)
             except OSError:
                 continue
 
