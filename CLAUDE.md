@@ -61,6 +61,20 @@ Machine-specific operating layer. The rules above are the engineering standard; 
 - Never `git reset --hard`, `git checkout --`, or force-push unless asked in words.
 - Do not amend commits unless asked. Respect dirty worktrees; never revert unrelated changes.
 
+### `~/.claude` stays on `main`
+
+`~/.claude` is a working clone of `chad_claude_configs`, and it is the config
+that loads. There is no separate deployed copy: the checked-out branch **is** the
+live global runtime. So development does not happen here.
+
+- Config work gets its own worktree: `git worktree add ~/code/chad_claude_configs-<topic> -b codex/<topic>`. Edit, test and commit there.
+- Merge through a PR, then `git -C ~/.claude pull` — that is the only thing that moves the live config.
+- `~/.claude` only ever sits on `main`. A feature branch checked out here means every session is running unmerged, unreviewed policy, and a `git checkout main` at the wrong moment silently reverts live behaviour.
+
+The 2026-08-11 cutover is the worked example: the foundation registration lived
+only in the working tree, so moving to `main` before it merged would have taken
+the plugin runtime down. Land first, then move.
+
 ## Communication
 
 Write to Chad in Simplified Technical English: one idea per sentence, short sentences, active voice, present tense, one term per concept, exact technical names. This covers chat, explanations, and messages sent as Chad. It does not cover code, comments, commit messages, or quoted output. Full ruleset: `~/.claude/standards/OUTPUT_STYLE_STE.md`.
