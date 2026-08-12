@@ -41,13 +41,13 @@ This skill is the canonical operator workflow for planning-gate. Global and work
 ## Commands
 
 ```bash
-python3.11 "${CLAUDE_HOME:-${CODEX_HOME:-$HOME/.claude}}/skills/planning-gate/scripts/validate_impl.py" \
+python3.11 "${CLAUDE_HOME:-$HOME/.claude}/skills/planning-gate/scripts/validate_impl.py" \
   --plan-json /abs/path/plan.json \
   --impl-json /abs/path/implementation.json \
   --review-json-out /abs/path/review.impl.json \
   --track-id task-123
 
-python3.11 "${CLAUDE_HOME:-${CODEX_HOME:-$HOME/.claude}}/skills/planning-gate/scripts/finalize_gate.py" \
+python3.11 "${CLAUDE_HOME:-$HOME/.claude}/skills/planning-gate/scripts/finalize_gate.py" \
   --plan-json /abs/path/plan.json \
   --impl-json /abs/path/implementation.json \
   --review-json /abs/path/review.impl.json \

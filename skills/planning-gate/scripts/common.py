@@ -55,6 +55,12 @@ TRANSITION_HISTORY_RECORD_SCHEMA_VERSION = "transition-history-record.v1"
 FAILED_ATTEMPT_RECORD_SCHEMA_VERSION = "failed-attempt-record.v1"
 PLANNING_GATE_PYTHON_ENV_VAR = "PLANNING_GATE_PYTHON_BIN"
 PLANNING_GATE_REQUIRED_PYTHON = (3, 11)
+# Scope-path tokens that make a packet owe rollback expectations. Shared by the
+# packet-quality checker and the validation-packet generator so the two cannot
+# disagree about what counts as migration-adjacent: when only the checker knew
+# these, the generator emitted a non-rollback fallback for any plan that merely
+# had a migration-named FILE, and failed its own gate.
+_ROLLBACK_EXPECTATION_TOKENS = ("migration", "schema", ".sql")
 OBJECTIVE_INTENT_SCHEMA_VERSION = "objective-intent.v1"
 OBJECTIVE_RUNTIME_PACKET_DAG_SCHEMA_VERSION = "objective-packet-dag.v1"
 OBJECTIVE_RUNTIME_STATUS_SCHEMA_VERSION = "objective-status.v1"
@@ -3991,7 +3997,7 @@ def build_packet_quality_report(
             hard_fail_checks.append("validation_acceptance_not_evidence_driven")
         if external_support_required and not support_remediation_mode:
             hard_fail_checks.append("support_remediation_mode_missing")
-        if any(token in " ".join(scope).lower() for token in ("migration", "schema", ".sql")) and "rollback" not in str(packet.get("fallback_or_rollback") or "").lower():
+        if any(token in " ".join(scope).lower() for token in _ROLLBACK_EXPECTATION_TOKENS) and "rollback" not in str(packet.get("fallback_or_rollback") or "").lower():
             hard_fail_checks.append("rollback_expectation_missing")
         dependencies = to_string_list(packet.get("dependencies"))
         if len(dependencies) > 4:
@@ -4186,7 +4192,17 @@ def build_repo_validation_plan(
                 strategy_name = "multi_command_pipeline" if len(commands) > 1 and lane_name != "security_sensitive_review" else _validation_strategy_for_lane(lane_name)
                 rollback_or_fallback = (
                     "Stop on failed schema validation, preserve evidence, and require rollback evidence before closure."
+                    # The lane test alone is not enough: the packet-quality checker keys on the
+                    # SCOPE PATHS, not the lane, so a lint/tests/types_build packet whose
+                    # allowed_scope merely contains a migration-named file trips
+                    # rollback_expectation_missing. Reuse the checker's own tokens so the two
+                    # halves cannot drift apart again. This only ever selects the STRICTER
+                    # wording, so it can never weaken the gate.
                     if lane_name == "migration_schema"
+                    or any(
+                        token in " ".join(changed_files).lower()
+                        for token in _ROLLBACK_EXPECTATION_TOKENS
+                    )
                     else "Stop on failed validation and preserve evidence."
                 )
                 strategy_inputs = {
