@@ -14,6 +14,7 @@ import json
 import os
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 TIMEOUT_SECONDS = 5
@@ -81,10 +82,19 @@ def _mcp_call(workspace_id: str) -> str | None:
 
 MAX_CHARS = 4000
 
-# Rendered in this order. Each non-empty section is guaranteed a floor of the
-# budget, so no section can be deleted wholesale by an earlier one running long.
-# Observations and facts lead because they are the workspace's own recorded
-# statements; topics are a frequency index and lose least by being cut.
+# This block arrives before any grounding has happened, so it must not read as
+# established fact. rules/ai-engineering.md: memory is non-authoritative unless
+# explicitly designed otherwise, with provenance where consequential.
+# rules/execution-orchestration.md: memory is a claim, not current truth.
+CLAIM_NOTICE = (
+    "Recalled memory, not current truth. Each line is a claim recorded at the "
+    "time shown, and the system it describes may have changed since. Verify "
+    "against the repository, the live service or git before acting on one."
+)
+
+# Rendered in this order. Observations and facts lead because they are the
+# workspace's own recorded statements; topics are a frequency index and lose
+# least by being cut.
 SECTION_ORDER = (
     ("recentObservations", "Recent observations", "_render_observation"),
     ("activeFacts", "Active facts", "_render_fact"),
@@ -111,18 +121,64 @@ def _trim(text: str, limit: int) -> str:
     return cut.rstrip() + " […]"
 
 
-def _render_observation(item: dict, limit: int) -> str | None:
+def _parse_time(value) -> datetime | None:
+    """Read one of omni-mem's ISO timestamps, or give up quietly.
+
+    They arrive Zulu-suffixed ("2026-08-12T04:54:27.891Z"), which
+    datetime.fromisoformat does not accept before Python 3.11.
+    """
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _age(item: dict, reference: datetime | None) -> str:
+    """Age of a record as a short relative token, e.g. "3d" or "5h".
+
+    Relative, not absolute: the question a reader has about a remembered claim
+    is how stale it is, and a date makes them do that subtraction themselves.
+    Returns "" when either end is unreadable — a wrong age is worse than none.
+    """
+    created = _parse_time(item.get("createdAt") or item.get("updatedAt"))
+    if created is None or reference is None:
+        return ""
+    try:
+        delta = reference - created
+    except TypeError:  # one side naive, one side aware
+        return ""
+    seconds = delta.total_seconds()
+    if seconds < 0:
+        return ""
+    if seconds < 3600:
+        return f"{int(seconds // 60)}m"
+    if seconds < 86400:
+        return f"{int(seconds // 3600)}h"
+    return f"{int(seconds // 86400)}d"
+
+
+def _provenance(parts: list) -> str:
+    """Join the non-empty provenance tokens into a compact suffix."""
+    kept = [str(p) for p in parts if p]
+    return (" · " + " · ".join(kept)) if kept else ""
+
+
+def _render_observation(item: dict, limit: int, reference: datetime | None = None) -> str | None:
     title = str(item.get("title") or "").strip()
     body = str(item.get("text") or "").strip()
     if not title and not body:
         return None
-    head = f"- **{title or '(untitled)'}**"
+    origin = str(item.get("agentFamily") or item.get("source") or "").strip()
+    meta = _provenance([_age(item, reference), origin and f"via {origin}"])
+    head = f"- **{title or '(untitled)'}**{meta}"
     if not body:
         return head
     return head + "\n  " + _trim(body, max(80, limit - len(head)))
 
 
-def _render_fact(item: dict, limit: int) -> str | None:
+def _render_fact(item: dict, limit: int, reference: datetime | None = None) -> str | None:
     """Facts arrive as subject/predicate/object triples, or as plain statements.
 
     build_briefing carries `subjectId` as an opaque `fact-entity:<hex>` handle
@@ -135,32 +191,45 @@ def _render_fact(item: dict, limit: int) -> str | None:
     they are rendered through the same triple reader with a text fallback
     rather than given a shape this code has never actually seen.
     """
+    confidence = item.get("confidence")
+    meta = _provenance([
+        _age(item, reference),
+        f"confidence {confidence}" if isinstance(confidence, (int, float)) else "",
+    ])
     predicate = str(item.get("predicate") or "").strip()
     obj = str(item.get("object") or "").strip()
     if predicate or obj:
         subject = str(item.get("subjectId") or "").split(":")[-1][:8]
         statement = " ".join(p for p in (predicate, obj) if p)
         prefix = f"(subject {subject}) " if subject else ""
-        return "- " + prefix + _trim(statement, max(80, limit - len(prefix)))
+        budget = max(80, limit - len(prefix) - len(meta))
+        return "- " + prefix + _trim(statement, budget) + meta
     for field in ("text", "value", "title", "label"):
         got = item.get(field)
         if isinstance(got, str) and got.strip():
-            return "- " + _trim(got, limit)
+            return "- " + _trim(got, max(80, limit - len(meta))) + meta
     return None
 
 
-def _render_page(item: dict, limit: int) -> str | None:
+def _render_page(item: dict, limit: int, reference: datetime | None = None) -> str | None:
     title = str(item.get("title") or "").strip()
     body = str(item.get("body") or "").strip()
     if not title and not body:
         return None
-    head = f"- **{title or '(untitled)'}**"
+    trust = item.get("trustLevel")
+    citations = item.get("citations")
+    meta = _provenance([
+        _age(item, reference),
+        f"trust {trust}" if isinstance(trust, (int, float)) else "",
+        f"{len(citations)} citations" if isinstance(citations, list) and citations else "",
+    ])
+    head = f"- **{title or '(untitled)'}**{meta}"
     if not body:
         return head
     return head + "\n  " + _trim(body, max(80, limit - len(head)))
 
 
-def _render_topic(item: dict, limit: int) -> str | None:
+def _render_topic(item: dict, limit: int, reference: datetime | None = None) -> str | None:
     label = str(item.get("label") or item.get("topicKey") or "").strip()
     if not label:
         return None
@@ -200,6 +269,13 @@ def render_briefing(data: dict, max_chars: int = MAX_CHARS) -> str | None:
        overspill guarantee 1 allows — bounded by one item per section.
     3. Every drop is stated, in the heading or with a trim marker.
 
+    Each line also carries its own provenance — age, and whichever of origin,
+    confidence or trust the record has — so a reader can weigh one claim
+    against another. `main` states the claim status once for the whole block;
+    this states the standing of each item inside it. Ages are measured against
+    the payload's own `generatedAt` so they do not drift with the clock of
+    whatever later reads it.
+
     Returns None when the payload has no renderable section, which keeps the
     hook silent instead of injecting an empty heading.
     """
@@ -209,6 +285,7 @@ def render_briefing(data: dict, max_chars: int = MAX_CHARS) -> str | None:
     if not sections:
         return None
 
+    reference = _parse_time(data.get("generatedAt")) or datetime.now(timezone.utc)
     share = max(1, max_chars // len(sections))
     lines: list[str] = []
     spent = 0
@@ -231,7 +308,7 @@ def render_briefing(data: dict, max_chars: int = MAX_CHARS) -> str | None:
         for item in items:
             if not isinstance(item, dict):
                 continue
-            rendered = renderer(item, per_item)
+            rendered = renderer(item, per_item, reference)
             if not rendered:
                 continue
             if used + len(rendered) > allowance and shown:
@@ -280,7 +357,13 @@ def main() -> int:
     elif len(briefing) > MAX_CHARS:
         briefing = briefing[:MAX_CHARS] + "\n\n[briefing truncated]"
 
-    header = f"## omni-mem briefing — workspace `{workspace_id}`\n\n"
+    # The notice sits on both paths deliberately. The fallback is the one that
+    # needs it most: it injects the raw payload, which reads as a data dump and
+    # carries no per-item standing at all.
+    header = (
+        f"## omni-mem briefing — workspace `{workspace_id}`\n\n"
+        f"{CLAIM_NOTICE}\n\n"
+    )
     payload = {
         "hookSpecificOutput": {
             "hookEventName": "SessionStart",

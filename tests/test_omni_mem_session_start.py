@@ -161,6 +161,102 @@ class TestFactRendering:
         assert MOD._render_topic({"count": 4}, 100) is None
 
 
+class TestProvenance:
+    """Memory injected before any grounding must be auditable, not authoritative.
+
+    rules/ai-engineering.md requires provenance on memory; the age is what tells
+    a reader whether a remembered claim about a live system is worth trusting.
+    """
+
+    REFERENCE = "2026-08-12T00:00:00Z"
+
+    def _render(self, section: str, item: dict) -> str:
+        return MOD.render_briefing({"generatedAt": self.REFERENCE, section: [item]}, 4000)
+
+    def test_observation_carries_age_and_origin(self):
+        item = _observation("obs")
+        item["createdAt"] = "2026-08-09T00:00:00Z"
+        item["agentFamily"] = "chad-work"
+        out = self._render("recentObservations", item)
+        assert "3d" in out
+        assert "via chad-work" in out
+
+    def test_age_is_measured_against_the_payload_not_the_wall_clock(self):
+        # Otherwise a briefing rendered from a cache would age every claim in it
+        # by however long the cache sat.
+        item = _observation("obs")
+        item["createdAt"] = "2026-08-11T21:00:00Z"
+        out = self._render("recentObservations", item)
+        assert "3h" in out
+
+    def test_hours_and_minutes_below_a_day(self):
+        item = _observation("obs")
+        item["createdAt"] = "2026-08-11T23:30:00Z"
+        assert "30m" in self._render("recentObservations", item)
+
+    def test_no_age_is_shown_when_the_timestamp_is_unusable(self):
+        # A wrong age is worse than no age: it invites a staleness judgement
+        # from a number that means nothing.
+        for stamp in ("", "not a date", None):
+            item = _observation("obs")
+            item["createdAt"] = stamp
+            out = self._render("recentObservations", item)
+            assert "· " not in out.split("\n")[1], f"bogus provenance for {stamp!r}"
+
+    def test_no_age_is_shown_for_a_record_from_the_future(self):
+        # A clock-skewed record must not render "-3440m". Age is the only
+        # provenance this item can carry, so an untouched heading is the proof.
+        item = _observation("obs")
+        item["createdAt"] = "2027-01-01T00:00:00Z"
+        out = self._render("recentObservations", item)
+        head = out.splitlines()[1]  # [0] is the section heading
+        assert head.rstrip().endswith("**obs**"), head
+
+    def test_fact_carries_confidence(self):
+        item = _fact("is", "true")
+        item["confidence"] = 0.4
+        item["createdAt"] = "2026-08-10T00:00:00Z"
+        out = self._render("activeFacts", item)
+        assert "confidence 0.4" in out
+        assert "2d" in out
+
+    def test_page_carries_trust_and_citation_count(self):
+        item = _page("page")
+        item["trustLevel"] = 0.7
+        item["citations"] = ["a", "b", "c"]
+        out = self._render("synthesisPages", item)
+        assert "trust 0.7" in out
+        assert "3 citations" in out
+
+    def test_missing_provenance_fields_produce_no_empty_separators(self):
+        out = self._render("synthesisPages", {"title": "bare", "body": "b"})
+        assert "· ·" not in out
+        assert out.splitlines()[1].rstrip().endswith("**bare**")
+
+
+class TestClaimFraming:
+    def _context(self, monkeypatch, capsys, briefing) -> str:
+        monkeypatch.setattr(MOD, "_mcp_call", lambda _ws: briefing)
+        monkeypatch.setattr(sys, "stdin", io.StringIO(""))
+        assert MOD.main() == 0
+        return json.loads(capsys.readouterr().out)["hookSpecificOutput"]["additionalContext"]
+
+    def test_rendered_block_states_that_it_is_recalled_claims(self, monkeypatch, capsys):
+        ctx = self._context(monkeypatch, capsys, json.dumps(_full_payload()))
+        assert MOD.CLAIM_NOTICE in ctx
+
+    def test_the_fallback_block_states_it_too(self, monkeypatch, capsys):
+        # The fallback injects the raw payload, which reads as a data dump and
+        # carries no per-item standing — it needs the notice most.
+        ctx = self._context(monkeypatch, capsys, "unparseable briefing text")
+        assert MOD.CLAIM_NOTICE in ctx
+
+    def test_the_notice_says_to_verify_before_acting(self, monkeypatch, capsys):
+        ctx = self._context(monkeypatch, capsys, json.dumps(_full_payload()))
+        assert "not current truth" in ctx
+        assert "Verify" in ctx
+
+
 class TestRefusesToRenderNothing:
     def test_returns_none_for_non_dict(self):
         assert MOD.render_briefing(None) is None
