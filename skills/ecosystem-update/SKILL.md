@@ -29,7 +29,7 @@ Before fetching anything external, snapshot the current config so you can diff a
 2. Read `~/.claude/settings.json` — note: all hook events, permissions, MCPs, plugins
 3. Glob `~/.claude/agents/*.md` — read frontmatter of each (name, tools, model, isolation flag)
 4. Glob `~/.claude/skills/` — list all installed skill directories
-5. Search claude-mem: `mcp__claude-mem__search "ecosystem-update seen"` — retrieve previously reported item hashes to skip
+5. Search omni-mem: `mcp__omni-mem__search "ecosystem-update seen"` — retrieve previously reported item hashes to skip
 
 Also read `~/.claude/state/ecosystem-update-last-run.json` — the `seen_items` array contains identifiers of previously reported items. Skip any candidate whose identifier appears in that list.
 
@@ -39,7 +39,7 @@ Build an internal "already have" list dynamically from the above reads. Do not h
 
 ## Step 2 — Fetch Sources
 
-Run WebSearch and WebFetch in parallel where possible.
+Fetch in parallel where possible. **Tool preference:** use wigolo (`mcp__wigolo__search` / `mcp__wigolo__fetch`) when available — its persistent cache means repeat fetches are instant and `diff`/`cache` can show what changed on a source since the last run. Fall back to WebSearch/WebFetch only if wigolo is not granted. (Some agents, e.g. chad-work, carry wigolo but not WebSearch/WebFetch — the skill must still run there.)
 
 ### Tier 1 — Always fetch (daily signal)
 
@@ -48,16 +48,17 @@ Run WebSearch and WebFetch in parallel where possible.
 | `https://github.com/hesreallyhim/awesome-claude-code` | New skills, hooks, agents, orchestrators added to the catalog |
 | `https://howborisusesclaudecode.com/` | Boris's latest tips and workflow patterns |
 | `https://github.com/shanraisshan/claude-code-best-practice` | New tips, CLAUDE.md patterns, hook techniques |
+| Official settings JSON schema (`https://json.schemastore.org/claude-code-settings.json`) | Diff schema keys against current `settings.json` — new settings not yet adopted. Highest-yield source on the 2026-07-29 run when community catalogs were quiet |
 
-WebSearch supplement: `"claude code" new hooks agents skills site:github.com 2026`
+Search supplement: `"claude code" new hooks agents skills site:github.com {current year}`
 
 ### Tier 2 — Daily (skip if state file shows `tier2_last_run` within 24 hours)
 
 | Source | What to extract |
 |--------|----------------|
-| `https://arxiv.org/search/?searchtype=all&query=LLM+agent+coding&order=-announced_date_first` | Papers published in last 24 hours with applicable multi-agent or verification patterns |
+| `https://arxiv.org/search/?searchtype=all&query=LLM+agent+coding&order=-announced_date_first` | Papers published since `tier2_last_run` (not a fixed 24h — runs slip) with applicable multi-agent or verification patterns |
 
-WebSearch supplement: `arxiv.org LLM agent coding autonomous 2026 site:arxiv.org`
+Search supplement: `arxiv.org LLM agent coding autonomous {current year} site:arxiv.org`
 
 ### Tier 3 — Weekly (skip if state file shows `tier3_last_run` within 7 days)
 
@@ -154,6 +155,12 @@ If the file already exists (same-day rerun), overwrite it.
 ## Already Have
 {Comma-separated list of items that are already implemented — no need to revisit}
 
+## Auto-Implemented
+{Only on non-dry-run: list of Quick Wins actually applied, with file touched. Omit section if none.}
+
+## Blocked Quick Wins
+{Quick Wins the permission layer denied — one ready-to-run command or exact edit per item so Chad can apply manually. Omit section if none.}
+
 ## Rejected
 - {Item} — {reason: overengineered / already covered by X / alignment failure}
 
@@ -180,7 +187,7 @@ _Run at: {timestamp}_
 
 The `seen_items` array is the primary deduplication mechanism. Each entry is a short slug derived from the item title (lowercase, hyphens). On the next run, any candidate whose slug matches an entry in this list is immediately bucketed as HAVE and skipped.
 
-**claude-mem** — if available, also save a `type: reference` observation summarizing this run's Quick Wins. This is secondary — the state file is the source of truth. If claude-mem is unavailable, skip silently and note it in the report.
+**omni-mem** — if available, also save a `type: reference` observation via `mcp__omni-mem__save_memory` summarizing this run's Quick Wins. This is secondary — the state file is the source of truth. If omni-mem is unavailable, skip silently and note it in the report.
 
 ---
 
@@ -207,6 +214,8 @@ cp ~/.claude/agents/*.md ~/.claude/backups/{YYYY-MM-DD}/
 - Never rewrite agent or skill bodies — frontmatter additions only
 - Never create new files (those are Build Queue items, not Quick Wins)
 - Never modify a file that wasn't explicitly identified as the target in the Quick Win Action column
+
+**Permission-denial fallback:** if the permission classifier denies an edit (this happened on the 2026-06-07 run), do NOT retry or escalate. Move the item to the report's `## Blocked Quick Wins` section with the exact command/edit for Chad to apply manually, set `last_run_mode` in the state file to note the denial, and continue with the remaining Quick Wins.
 
 ---
 

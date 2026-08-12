@@ -19,16 +19,18 @@ Use this skill when you need a short newsletter-style issue that aggregates publ
 - Research papers
 
 The output is a dated Markdown issue at:
-- `/Users/chadsimon/code2/docs/ai-briefs/{YYYY-MM-DD}.md`
+- `~/.claude/reports/daily-tech-brief/{YYYY-MM-DD}.md`
 
 ## Workflow
 
 1. Generate the issue with:
 
 ```bash
-python3.11 /Users/chadsimon/code2/utils/daily_tech_brief.py \
-  --output /Users/chadsimon/code2/docs/ai-briefs/$(date +%F).md
+python3.11 ~/code2/utils/daily_tech_brief.py \
+  --output ~/.claude/reports/daily-tech-brief/$(date +%F).md
 ```
+
+Create the output directory if it doesn’t exist: `mkdir -p ~/.claude/reports/daily-tech-brief`.
 
 2. The issue must include:
 - `TL;DR`
@@ -41,15 +43,15 @@ python3.11 /Users/chadsimon/code2/utils/daily_tech_brief.py \
 - `Watchlist`
 
 3. Relevance must be grounded in:
-- `/Users/chadsimon/.claude/CLAUDE.md`
-- `/Users/chadsimon/.claude/settings.json`
-- `/Users/chadsimon/.claude/state/route_manifest.json`
-- installed skills under `/Users/chadsimon/.claude/skills/`
-- the current workspace at `/Users/chadsimon/code2`
+- `~/.claude/CLAUDE.md`
+- `~/.claude/settings.json`
+- `~/.claude/state/route_manifest.json`
+- installed skills under `~/.claude/skills/`
+- the current workspace
 
 ## Constraints
 
 - Use only public unauthenticated sources.
 - Keep the issue concise and TLDR-style.
-- Do not mutate Codex config or rules automatically based on the day’s findings.
+- Do not mutate Claude config or rules automatically based on the day’s findings.
 - Same-day reruns should overwrite the existing dated file.

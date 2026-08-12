@@ -12,9 +12,16 @@ lexical_guard_profile: stale_names,destructive_rollback,branch_policy_live
 
 # /govern - Governed Runtime Orchestration
 
-This skill is the runtime interpreter for the route manifest (`~/.claude/state/route_manifest.json`).
+This skill is the runtime interpreter for the route manifest (`~/.claude/state/route_manifest.json`)
+and the enforcer of the canonical 9-phase workflow (`~/.claude/standards/WORKFLOW_PHASES.md`).
 It classifies work, enforces route-specific execution discipline, spawns agent teams for bounded swarms,
 and gates closure on convergence and postflight evidence.
+
+**Phase mapping:** govern's internal phases map to the canonical workflow as follows:
+Phase 0 (Memory Retrieval) = WF Phase 3 (Research). Phase 1 (Route Classification) = WF Phase 2
+(Classify). Phase 2 (Execute by Route) spans WF Phases 4–9 (Blueprint → Validate), with
+`/planning-gate` owning Phase 5 (Plan) and the orchestration loop covering Phases 7–8
+(Implement → Test). See WORKFLOW_PHASES.md for the full sequence and route × phase matrix.
 
 ## Usage
 
@@ -48,8 +55,8 @@ and gates closure on convergence and postflight evidence.
 ### Phase 0: Memory Retrieval
 
 Before any classification or execution:
-1. Search codex-mem for workspace preferences, prior route decisions, known constraints
-2. Search claude-mem for durable decisions affecting this workspace
+1. Search omni-mem for workspace preferences, prior route decisions, known constraints
+2. Search omni-mem for durable decisions affecting this workspace
 3. Record `memory_retrieval_evidence` for the implementation contract
 
 If memory is weak or low-confidence, surface that weakness — do not pretend the context is strong.

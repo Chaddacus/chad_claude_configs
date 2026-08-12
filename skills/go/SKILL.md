@@ -51,9 +51,15 @@ Execute the detected verify command. Three outcomes:
 
 Use `git stash` + re-run to distinguish introduced vs pre-existing when unclear.
 
-### 3. /simplify
+### 3. Simplify pass
 
-Invoke `/simplify` via the Skill tool. Apply findings that are clearly correctness or readability improvements. Skip findings that request new abstractions (CLAUDE.md anti-overengineering gate).
+Re-read the changed files. For each, look for:
+- Dead code introduced by the current changes
+- Unnecessarily complex conditionals that can be flattened
+- Duplicated logic across the changed files
+- Names that don't match what the code does
+
+Apply findings that are clearly correctness or readability improvements. Skip findings that request new abstractions (CLAUDE.md anti-overengineering gate). Do not touch files outside the current change set.
 
 ### 4. /what-would-chad-do
 
@@ -62,13 +68,14 @@ Invoke `/what-would-chad-do` via the Skill tool. This reflection asks whether th
 - If it yields a concrete next step: take it, then re-run verification, then continue.
 - If it clears: continue.
 
-### 5. /commit-push-pr
+### 5. Commit, push, and PR
 
-Invoke `/commit-push-pr` via the Skill tool. Respect CLAUDE.md's git rules:
+Stage and commit the changes, push to a remote branch, and open a PR. Respect CLAUDE.md's git rules:
 - Use `codex/` branch prefix
 - Never push to `main`
 - No `--no-verify`, no `--amend`
 - Descriptive PR title and body
+- Use `gh pr create` for the PR
 
 ### 6. Notify
 
@@ -86,9 +93,9 @@ These are not overridable by the user inside `/go`:
 
 `/go` is complete when:
 1. Verify command returned exit code 0 (or user explicitly acknowledged pre-existing failures)
-2. `/simplify` was invoked and findings were triaged
+2. Simplify pass was run and findings were triaged
 3. `/what-would-chad-do` was invoked and either no step was needed or the step was taken + re-verified
-4. `/commit-push-pr` opened a PR (URL returned)
+4. Changes committed, pushed, and PR opened (URL returned)
 5. Notification fired
 
 Report a single-paragraph summary with: verify outcome, simplify findings count, chad-reflection outcome, PR URL.

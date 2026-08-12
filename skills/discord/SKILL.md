@@ -1,6 +1,6 @@
 ---
 name: discord
-description: Manage Chad's Discord servers (the Chadacys creator hub and any others) — categories, channels, roles, permissions, channel topics, and message posting — through the Discord REST API using the bot token stored in Bitwarden. Use whenever asked to set up, restructure, audit, gate, or post to a Discord server.
+description: "Manage Chad's Discord servers via REST API (bot token from Bitwarden) — channels, roles, permissions, topics, posting. Use for setup, restructure, audit, or posting to Discord."
 ---
 
 # Discord management

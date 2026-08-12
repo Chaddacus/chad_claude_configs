@@ -1,6 +1,6 @@
 ---
 name: cost
-description: Run cc-cost against local Claude Code session transcripts to surface per-session cost, prompt-cache hit rate, tool call distribution, top-expensive turns, and cost-optimization advice. Use when the user asks about cost, token usage, cache hit rate, or expensive sessions; invoke for "/cost" or any equivalent phrasing.
+description: "Run cc-cost on session transcripts: per-session cost, cache hit rate, tool-call distribution, top-expensive turns, optimization advice. Use for /cost or questions about token usage."
 disallowed-tools: Write, Edit, NotebookEdit
 ---
 

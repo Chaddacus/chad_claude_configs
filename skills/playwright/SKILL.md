@@ -42,7 +42,7 @@ Once `npx` is present, proceed with the wrapper script. A global install of `pla
 ## Skill path (set once)
 
 ```bash
-export CLAUDE_HOME="${CLAUDE_HOME:-${CODEX_HOME:-$HOME/.claude}}"
+export CLAUDE_HOME="${CLAUDE_HOME:-$HOME/.claude}"
 export PWCLI="$CLAUDE_HOME/skills/playwright/scripts/playwright_cli.sh"
 ```
 
