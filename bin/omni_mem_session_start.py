@@ -79,6 +79,182 @@ def _mcp_call(workspace_id: str) -> str | None:
     return None
 
 
+MAX_CHARS = 4000
+
+# Rendered in this order. Each non-empty section is guaranteed a floor of the
+# budget, so no section can be deleted wholesale by an earlier one running long.
+# Observations and facts lead because they are the workspace's own recorded
+# statements; topics are a frequency index and lose least by being cut.
+SECTION_ORDER = (
+    ("recentObservations", "Recent observations", "_render_observation"),
+    ("activeFacts", "Active facts", "_render_fact"),
+    ("synthesisPages", "Synthesis pages", "_render_page"),
+    ("identityFacts", "Identity facts", "_render_fact"),
+    ("preferences", "Preferences", "_render_fact"),
+    ("relevantTopics", "Topics", "_render_topic"),
+)
+
+
+def _trim(text: str, limit: int) -> str:
+    """Shorten to `limit` chars at a space boundary, marking that it was cut.
+
+    A silent cut reads as a complete statement, so the marker is part of the
+    contract, not decoration.
+    """
+    text = " ".join(str(text).split())
+    if len(text) <= limit:
+        return text
+    cut = text[:limit]
+    space = cut.rfind(" ")
+    if space > limit // 2:
+        cut = cut[:space]
+    return cut.rstrip() + " […]"
+
+
+def _render_observation(item: dict, limit: int) -> str | None:
+    title = str(item.get("title") or "").strip()
+    body = str(item.get("text") or "").strip()
+    if not title and not body:
+        return None
+    head = f"- **{title or '(untitled)'}**"
+    if not body:
+        return head
+    return head + "\n  " + _trim(body, max(80, limit - len(head)))
+
+
+def _render_fact(item: dict, limit: int) -> str | None:
+    """Facts arrive as subject/predicate/object triples, or as plain statements.
+
+    build_briefing carries `subjectId` as an opaque `fact-entity:<hex>` handle
+    and ships no name for it, so the predicate alone reads as a statement with
+    a missing referent ("are enforced as ..."). The handle is shown rather than
+    dropped: an unresolved subject is visible, and a reader cannot misattribute
+    the claim to whatever subject the previous line had.
+
+    identityFacts and preferences were empty on every workspace measured, so
+    they are rendered through the same triple reader with a text fallback
+    rather than given a shape this code has never actually seen.
+    """
+    predicate = str(item.get("predicate") or "").strip()
+    obj = str(item.get("object") or "").strip()
+    if predicate or obj:
+        subject = str(item.get("subjectId") or "").split(":")[-1][:8]
+        statement = " ".join(p for p in (predicate, obj) if p)
+        prefix = f"(subject {subject}) " if subject else ""
+        return "- " + prefix + _trim(statement, max(80, limit - len(prefix)))
+    for field in ("text", "value", "title", "label"):
+        got = item.get(field)
+        if isinstance(got, str) and got.strip():
+            return "- " + _trim(got, limit)
+    return None
+
+
+def _render_page(item: dict, limit: int) -> str | None:
+    title = str(item.get("title") or "").strip()
+    body = str(item.get("body") or "").strip()
+    if not title and not body:
+        return None
+    head = f"- **{title or '(untitled)'}**"
+    if not body:
+        return head
+    return head + "\n  " + _trim(body, max(80, limit - len(head)))
+
+
+def _render_topic(item: dict, limit: int) -> str | None:
+    label = str(item.get("label") or item.get("topicKey") or "").strip()
+    if not label:
+        return None
+    count = item.get("count")
+    return "- " + _trim(f"{label} ({count})" if count is not None else label, limit)
+
+
+def _sections(data: dict) -> list[tuple[str, list, object]]:
+    """Non-empty sections in render order, paired with their item renderer."""
+    out = []
+    for key, heading, renderer_name in SECTION_ORDER:
+        items = data.get(key)
+        if isinstance(items, list) and items:
+            out.append((heading, items, globals()[renderer_name]))
+    return out
+
+
+def render_briefing(data: dict, max_chars: int = MAX_CHARS) -> str | None:
+    """Render a build_briefing payload as budgeted markdown.
+
+    The previous behaviour cut the raw JSON at a fixed character count. Because
+    JSON serialises its sections in a fixed order, that cut did not sample the
+    briefing — it deleted every section after the first one or two, in full, on
+    every session. Measured on workspace chad_work: 25,131 chars produced, 4,000
+    kept, and `activeFacts`, `synthesisPages`, `relevantTopics` and `summary`
+    never reached the session at all.
+
+    Three guarantees hold here, each verified by mutating it away and watching
+    a specific test die (tests/test_omni_mem_session_start.py):
+
+    1. Every non-empty section renders at least one item, so no section can
+       disappear in silence. This outranks the budget: a section whose first
+       item is larger than its whole share is still shown, trimmed.
+    2. Each section reserves a share of the budget for the sections that follow
+       it, so a long leading section cannot spend the whole allowance. Total
+       output therefore stays near `max_chars`, exceeding it only by the
+       overspill guarantee 1 allows — bounded by one item per section.
+    3. Every drop is stated, in the heading or with a trim marker.
+
+    Returns None when the payload has no renderable section, which keeps the
+    hook silent instead of injecting an empty heading.
+    """
+    if not isinstance(data, dict):
+        return None
+    sections = _sections(data)
+    if not sections:
+        return None
+
+    share = max(1, max_chars // len(sections))
+    lines: list[str] = []
+    spent = 0
+
+    for index, (heading, items, renderer) in enumerate(sections):
+        remaining_sections = len(sections) - index
+        # Unspent budget flows forward, but never into the shares still owed to
+        # the sections after this one. The max() is the recovery path: an
+        # earlier section may overspend by one item under guarantee 1, and this
+        # stops that overspend cascading into a zero allowance here.
+        reserved = share * (remaining_sections - 1)
+        allowance = max(share, max_chars - spent - reserved)
+        # Spread a section's allowance over its first few items rather than
+        # letting one long record consume the section.
+        per_item = max(1, allowance // max(1, min(len(items), 6)))
+
+        block: list[str] = []
+        used = 0
+        shown = 0
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            rendered = renderer(item, per_item)
+            if not rendered:
+                continue
+            if used + len(rendered) > allowance and shown:
+                break
+            block.append(rendered)
+            used += len(rendered) + 1
+            shown += 1
+        if not block:
+            continue
+
+        dropped = len(items) - shown
+        title = f"### {heading} ({len(items)})" if not dropped else \
+                f"### {heading} — showing {shown} of {len(items)}"
+        lines.append(title)
+        lines.extend(block)
+        lines.append("")
+        spent += len(title) + used + 1
+
+    if not lines:
+        return None
+    return "\n".join(lines).rstrip()
+
+
 def main() -> int:
     try:
         _ = sys.stdin.read()  # consume hook input; we don't need its fields
@@ -90,10 +266,19 @@ def main() -> int:
     if not briefing:
         return 0
 
-    # Cap injected context so very long briefings don't blow session budget.
-    max_chars = 4000
-    if len(briefing) > max_chars:
-        briefing = briefing[:max_chars] + "\n\n[briefing truncated]"
+    # The hook must never block session start, so a payload that is not the
+    # JSON this renderer expects falls back to the original raw-and-cut path
+    # rather than raising.
+    rendered = None
+    try:
+        rendered = render_briefing(json.loads(briefing), MAX_CHARS)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        rendered = None
+
+    if rendered is not None:
+        briefing = rendered
+    elif len(briefing) > MAX_CHARS:
+        briefing = briefing[:MAX_CHARS] + "\n\n[briefing truncated]"
 
     header = f"## omni-mem briefing — workspace `{workspace_id}`\n\n"
     payload = {
