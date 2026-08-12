@@ -8,7 +8,7 @@ allowed-tools: Read, Write, Edit, Bash, Grep, Glob, Task, WebFetch, TaskCreate, 
 
 # /audit — Enterprise Maturity Audit
 
-You are the autonomous enterprise audit system. You assess codebases against the 12-category rubric in `~/.claude/rules/enterprise-rubric.md`, fix gaps using `/build`, gate every round on E2E tests, and repeat until the codebase meets enterprise standards.
+You are the autonomous enterprise audit system. You assess codebases against the 12-category rubric in `~/.claude/skills/audit/references/enterprise-maturity-rubric-generic.md`, fix gaps using `/build`, gate every round on E2E tests, and repeat until the codebase meets enterprise standards.
 
 ## Parse Arguments
 
@@ -16,10 +16,10 @@ Parse the user's invocation to determine mode:
 
 | Invocation | Mode | Behavior |
 |---|---|---|
-| `/audit` | **assess** | Score all 12 categories. Display scorecard. Store in claude-mem. |
+| `/audit` | **assess** | Score all 12 categories. Display scorecard. Store in omni-mem. |
 | `/audit --fix` | **fix** | Autonomous loop: score → fix → E2E → re-score → repeat until avg >= 4.0 and min >= 3. Default max 5 rounds. |
 | `/audit --fix --max-rounds N` | **fix** | Same as above but cap at N rounds. |
-| `/audit --history` | **history** | Query claude-mem for previous audit results. Show score timeline with deltas. |
+| `/audit --history` | **history** | Query omni-mem for previous audit results. Show score timeline with deltas. |
 | `/audit --category <name>` | **single** | Deep-dive assessment of one category. Show detailed check results and violations. |
 | `/audit --fix --category <name>` | **fix-single** | Fix loop for a single category only. |
 
@@ -31,7 +31,7 @@ Arguments from the user's message: `$ARGUMENTS`
 
 If mode is `history`:
 
-1. Search claude-mem: `search("enterprise audit", project=<detected project name>)`
+1. Search omni-mem: `search("enterprise audit", project=<detected project name>)`
 2. Fetch full observations for all matching results
 3. Display a timeline table:
 
@@ -81,7 +81,7 @@ Also check for project-level CLAUDE.md for additional context (test commands, ar
 
 ### Step 2: Read the Rubric
 
-Read `~/.claude/rules/enterprise-rubric.md` to get the full rubric with all 12 categories, automated checks, scoring rules, and fix patterns.
+Read `~/.claude/skills/audit/references/enterprise-maturity-rubric-generic.md` to get the full rubric with all 12 categories, automated checks, scoring rules, and fix patterns.
 
 ### Step 3: Execute Automated Checks
 
@@ -124,9 +124,9 @@ Enterprise Ready:             YES/NO (avg >= 4.0, min >= 3)
 
 Include a brief justification per category (1-2 lines): what passed, what failed, key violations.
 
-### Step 5: Store in claude-mem
+### Step 5: Store in omni-mem
 
-Save the assessment results to claude-mem for cross-session persistence:
+Save the assessment results to omni-mem for cross-session persistence:
 
 ```
 save_memory({
@@ -156,7 +156,7 @@ If mode is `fix` or `fix-single`: continue to the Fix Loop below.
 
 Before starting the loop:
 
-1. **Query claude-mem** for previous audit results: `search("enterprise audit", project=<project>)`
+1. **Query omni-mem** for previous audit results: `search("enterprise audit", project=<project>)`
 2. If previous rounds exist:
    - Read the latest round's scores and violations
    - Identify categories already at 4+ (skip unless regression check needed)
@@ -175,196 +175,16 @@ If no previous E2E baseline exists:
 
 ### The Loop
 
-```
-max_rounds = N (from --max-rounds, default 5)
+The fix loop runs 7 phases per round: assess → check threshold → prioritize → generate fix plan → execute via /build → E2E gate → store + report. For the full visual flowchart, see `references/fix-loop-flowchart.md`.
 
-LOOP:
-  round++
-  if round > max_rounds:
-    REPORT: "Max rounds reached. Progress so far: [scorecard]. Suggested next steps: [remaining gaps]."
-    STOP
-
-  ╔═══════════════════════════════════════╗
-  ║ PHASE 1: ASSESS                      ║
-  ╠═══════════════════════════════════════╣
-  ║                                      ║
-  ║ Execute Step 3 (automated checks)    ║
-  ║ for all categories (or single if     ║
-  ║ --category was specified).           ║
-  ║                                      ║
-  ║ Skip deep checks on categories       ║
-  ║ already at 4+ from previous round    ║
-  ║ (quick verification only).           ║
-  ║                                      ║
-  ╚═══════════════════════════════════════╝
-            │
-  ╔═══════════╧═══════════════════════════╗
-  ║ PHASE 2: CHECK THRESHOLD             ║
-  ╠═══════════════════════════════════════╣
-  ║                                      ║
-  ║ if avg >= 4.0 AND min >= 3:          ║
-  ║   → Display: "ENTERPRISE READY"      ║
-  ║   → Store final scores in claude-mem ║
-  ║   → Show full scorecard with deltas  ║
-  ║   → STOP                             ║
-  ║                                      ║
-  ╚═══════════════════════════════════════╝
-            │
-  ╔═══════════╧═══════════════════════════╗
-  ║ PHASE 3: PRIORITIZE                  ║
-  ╠═══════════════════════════════════════╣
-  ║                                      ║
-  ║ Sort categories by:                  ║
-  ║   1. Score ascending (worst first)   ║
-  ║   2. Severity weight:                ║
-  ║      Security > Error Handling >     ║
-  ║      Type Safety > Testing >         ║
-  ║      API-First > everything else     ║
-  ║   3. Fix complexity (easy wins first)║
-  ║                                      ║
-  ║ Pick top 1-3 categories for this     ║
-  ║ round. Never try to fix everything   ║
-  ║ at once — focused improvement.       ║
-  ║                                      ║
-  ║ For --category mode: only pick the   ║
-  ║ requested category.                  ║
-  ║                                      ║
-  ╚═══════════════════════════════════════╝
-            │
-  ╔═══════════╧═══════════════════════════╗
-  ║ PHASE 4: GENERATE FIX PLAN           ║
-  ╠═══════════════════════════════════════╣
-  ║                                      ║
-  ║ For each selected category:          ║
-  ║                                      ║
-  ║ 1. Read the "Fix patterns" section   ║
-  ║    from the rubric for this score    ║
-  ║    transition (e.g., 2→4)            ║
-  ║                                      ║
-  ║ 2. Map violations to concrete tasks: ║
-  ║    - Which files need changes        ║
-  ║    - What changes are needed         ║
-  ║    - What the acceptance criteria is  ║
-  ║    - What gates must pass            ║
-  ║                                      ║
-  ║ 3. Order by dependency:              ║
-  ║    Security → Structural → Ops      ║
-  ║    (security fixes may change files  ║
-  ║    that structural fixes also touch) ║
-  ║                                      ║
-  ║ 4. Estimate preset for /build:       ║
-  ║    - 1-3 files → solo               ║
-  ║    - 3-8 files → pair               ║
-  ║    - 8+ files → squad               ║
-  ║                                      ║
-  ║ 5. Compose as a /build task desc     ║
-  ║                                      ║
-  ╚═══════════════════════════════════════╝
-            │
-  ╔═══════════╧═══════════════════════════╗
-  ║ PHASE 5: EXECUTE VIA /build          ║
-  ╠═══════════════════════════════════════╣
-  ║                                      ║
-  ║ Invoke /build with the generated     ║
-  ║ task description.                    ║
-  ║                                      ║
-  ║ /build handles:                      ║
-  ║   - Agent team spawning              ║
-  ║   - Spec → scaffold → execute →     ║
-  ║     validate → integrate             ║
-  ║   - Micro-validation (typecheck,     ║
-  ║     tests, lint)                     ║
-  ║   - 5-point reviewer checklist       ║
-  ║   - Commit on feature branch         ║
-  ║                                      ║
-  ║ Wait for /build to complete.         ║
-  ║                                      ║
-  ║ If /build reports BLOCKED on any     ║
-  ║ task: note the blocker, continue     ║
-  ║ with other improvements.             ║
-  ║                                      ║
-  ╚═══════════════════════════════════════╝
-            │
-  ╔═══════════╧═══════════════════════════╗
-  ║ PHASE 6: E2E GATE                    ║
-  ╠═══════════════════════════════════════╣
-  ║                                      ║
-  ║ Run full E2E suite.                  ║
-  ║                                      ║
-  ║ Compare to baseline:                 ║
-  ║   passed >= baseline_passed?         ║
-  ║   No previously-passing tests now    ║
-  ║   failing? (new failures OK if new   ║
-  ║   tests were added)                  ║
-  ║                                      ║
-  ║ IF REGRESSION:                       ║
-  ║   1. Identify which tests regressed  ║
-  ║   2. Correlate with files changed    ║
-  ║      in this round                   ║
-  ║   3. Report to user:                 ║
-  ║      - Which tests broke             ║
-  ║      - Which fix likely caused it    ║
-  ║      - Suggested resolution          ║
-  ║   4. Revert: git revert HEAD         ║
-  ║   5. HALT the loop                   ║
-  ║   6. User must intervene             ║
-  ║                                      ║
-  ║ IF PASS:                             ║
-  ║   Continue to Phase 7               ║
-  ║                                      ║
-  ║ NOTE: If no E2E suite exists,        ║
-  ║ fall back to unit test gating.       ║
-  ║ If no tests at all, gate on          ║
-  ║ typecheck + build only.              ║
-  ║                                      ║
-  ╚═══════════════════════════════════════╝
-            │
-  ╔═══════════╧═══════════════════════════╗
-  ║ PHASE 7: STORE + REPORT              ║
-  ╠═══════════════════════════════════════╣
-  ║                                      ║
-  ║ Save to claude-mem:                  ║
-  ║   save_memory({                      ║
-  ║     title: "Enterprise Audit         ║
-  ║       Round N — <Project>",          ║
-  ║     text: JSON.stringify({           ║
-  ║       type: "enterprise-audit",      ║
-  ║       round: N,                      ║
-  ║       project: "<name>",             ║
-  ║       scores: { <per-category> },    ║
-  ║       average: X.X,                  ║
-  ║       minimum: X,                    ║
-  ║       enterpriseReady: bool,         ║
-  ║       e2e: { total, passed,          ║
-  ║         failed, regressed },         ║
-  ║       fixesApplied: [...],           ║
-  ║       filesChanged: N               ║
-  ║     }),                              ║
-  ║     project: "<name>"                ║
-  ║   })                                 ║
-  ║                                      ║
-  ║ Display round summary:              ║
-  ║                                      ║
-  ║   Round N Summary                    ║
-  ║   ─────────────────                  ║
-  ║   Before  → After                    ║
-  ║   Avg: 2.8 → 3.4 (+0.6)            ║
-  ║   Min: 1   → 2   (+1)              ║
-  ║                                      ║
-  ║   Improved:                          ║
-  ║   - Security: 2 → 4 (+2)           ║
-  ║   - Error Handling: 2 → 3 (+1)     ║
-  ║                                      ║
-  ║   E2E: 113/125 passed (baseline OK) ║
-  ║                                      ║
-  ║   Remaining to enterprise-ready:     ║
-  ║   - Type Safety: 3 (need 4)        ║
-  ║   - Modularity: 2 (need 3+)        ║
-  ║                                      ║
-  ╚═══════════════════════════════════════╝
-            │
-       GOTO LOOP
-```
+**Phase sequence:**
+1. **ASSESS** — Execute automated checks (Step 3); skip deep checks on categories already at 4+ (quick verification only).
+2. **CHECK THRESHOLD** — If avg >= 4.0 AND min >= 3: display "ENTERPRISE READY", store final scores in omni-mem, STOP.
+3. **PRIORITIZE** — Sort by score ascending × severity weight × fix complexity. Pick top 1-3 categories.
+4. **GENERATE FIX PLAN** — Map violations to concrete tasks with acceptance criteria, order by dependency (Security → Structural → Ops), estimate /build preset.
+5. **EXECUTE VIA /build** — Invoke /build with the generated task. If BLOCKED, note and continue.
+6. **E2E GATE** — Run full E2E suite. Regression → revert + HALT. Pass → continue.
+7. **STORE + REPORT** — Save round results to omni-mem via `mcp__omni-mem__save_memory`. Display round summary with score deltas. GOTO LOOP.
 
 ### Loop Exit Conditions
 
@@ -380,7 +200,7 @@ LOOP:
 
 When `/audit --fix` is invoked in a new session:
 
-1. **Query claude-mem:** `search("enterprise audit", project=<project>)`
+1. **Query omni-mem:** `search("enterprise audit", project=<project>)`
 2. **If previous rounds found:**
    - Read the latest round: scores, violations, E2E baseline
    - Set round counter to latest_round + 1

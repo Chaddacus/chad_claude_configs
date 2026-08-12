@@ -62,8 +62,15 @@ def test_verified_clean_silent(run_hook, make_ledger):
 
 
 @pytest.mark.unit
-def test_unverified_runs_checks(run_hook, make_ledger, fake_project, monkeypatch):
-    """Unverified code edits with a project marker => runs commands, produces output."""
+def test_unverified_runs_checks(run_hook, make_ledger, fake_project, subagent_transcript, monkeypatch):
+    """Unverified code edits with a project marker => runs commands, produces output.
+
+    `--event task-completed` resolves a subagent start floor from the hook
+    payload and exits 0 when it cannot (a subagent whose edits cannot be
+    attributed is never nagged). A payload-less invocation therefore produces
+    NO output regardless of ledger state, so the transcript is required to
+    reach the verification path at all — without it this asserts nothing.
+    """
     make_ledger(
         edits=[{"file": "main.py", "timestamp": 200}],
         last_edit_at=200,
@@ -76,7 +83,11 @@ def test_unverified_runs_checks(run_hook, make_ledger, fake_project, monkeypatch
     })
     # chdir so find_project_root picks up our fake project
     monkeypatch.chdir(project_dir)
-    result = run_hook(COMPLETION_GATE, args=["--event", "task-completed"])
+    result = run_hook(
+        COMPLETION_GATE,
+        args=["--event", "task-completed"],
+        stdin_json={"transcript_path": subagent_transcript(), "agent_id": "test-agent-a"},
+    )
     # Should produce output (the envelope with hookSpecificOutput)
     assert result["stdout"].strip() != ""
     assert result["parsed_json"] is not None
@@ -331,11 +342,13 @@ def test_invalid_rejected(run_hook):
 
 
 @pytest.mark.unit
-def test_event_in_envelope(run_hook, make_ledger, fake_project, monkeypatch):
+def test_event_in_envelope(run_hook, make_ledger, fake_project, subagent_transcript, monkeypatch):
     """task-completed runs emit a PostToolUse-shaped hookSpecificOutput
     envelope with additionalContext (completion_gate.py's documented
     contract). This test previously asserted "task_completed", a value the
-    code never emitted — fixed 2026-06-09 to assert the actual contract."""
+    code never emitted — fixed 2026-06-09 to assert the actual contract.
+    Payload added 2026-07-27: the task path needs a resolvable subagent start
+    floor or it exits 0 silently (see test_unverified_runs_checks)."""
     make_ledger(
         edits=[{"file": "main.py", "timestamp": 200}],
         last_edit_at=200,
@@ -346,7 +359,11 @@ def test_event_in_envelope(run_hook, make_ledger, fake_project, monkeypatch):
         "Makefile": "\ntest:\n\techo ok\n",
     })
     monkeypatch.chdir(project_dir)
-    result = run_hook(COMPLETION_GATE, args=["--event", "task-completed"])
+    result = run_hook(
+        COMPLETION_GATE,
+        args=["--event", "task-completed"],
+        stdin_json={"transcript_path": subagent_transcript(), "agent_id": "test-agent-b"},
+    )
     assert result["parsed_json"] is not None
     hook_output = result["parsed_json"]["hookSpecificOutput"]
     assert hook_output["hookEventName"] == "PostToolUse"

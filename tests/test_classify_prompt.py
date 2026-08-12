@@ -370,3 +370,47 @@ class TestDeliverableKind:
 
     def test_anti_overrun_not_injected_for_r2(self):
         assert cp_module.route_policy_block({"route_hint": "R2"}) == ""
+
+
+@pytest.mark.unit
+class TestContinuationDetection:
+    """A bare "yes"/"both"/"go ahead" is the user answering the turn already
+    in flight. is_vague (<5 words, no files) cannot distinguish that from an
+    ambiguous request, so continuations routed R5 and pulled ~1200 tokens of
+    governance while telling the agent to clarify ambiguity the user had just
+    resolved.
+
+    The detector must stay NARROW — a false positive downgrades real work out
+    of its governance lane, so the negative cases carry the weight."""
+
+    @pytest.mark.parametrize("prompt", [
+        "yes", "no", "ok", "both", "Both", "sure", "yep",
+        "go", "go on", "go ahead", "continue", "proceed",
+        "do it", "Go and do it", "ship it", "keep going", "next",
+        "the first one", "option b", "sounds good", "looks good to me",
+        "thanks", "perfect", "stop", "cancel that",
+    ])
+    def test_recognized_as_continuation(self, prompt):
+        assert cp_module.is_continuation(prompt) is True
+
+    @pytest.mark.parametrize("prompt", [
+        # R5's real targets — they carry a verb the lexicon excludes
+        "fix it", "make it faster", "clean this up", "improve it",
+        # short but real work
+        "refactor the auth layer", "delete it all", "deploy to prod",
+        "drop the users table", "rotate the api key",
+        # affirmation followed by real work must NOT qualify
+        "yes but first refactor the auth layer",
+        "ok now migrate the database",
+        "go ahead and delete the openshield repo",
+        # long prose of common words is caught by the word cap
+        "and then we look at it and then we do that as well for us",
+        "", "   ",
+    ])
+    def test_not_a_continuation(self, prompt):
+        assert cp_module.is_continuation(prompt) is False
+
+    def test_vague_prompts_still_route_r5(self):
+        """The R5 contract must survive the carve-out."""
+        for prompt in ("fix it", "make it faster"):
+            assert cp_module.classify_prompt(prompt)["route_hint"] == "R5"

@@ -100,6 +100,6 @@ Use this when generating the roadmap. Each entry is a minimal fix recipe anchore
 ## Unknown rule
 
 If you see a rule not in this list:
-1. Read the rule definition in `/Users/chadsimon/code/openshield/packages/analyzers/src/*.ts`.
+1. Read the rule definition in `/Users/chadsimon/chad_work/openshield/packages/analyzers/src/*.ts`.
 2. Read the actual flagged code at `file:line`.
 3. Propose a fix grounded in both, not a generic one.

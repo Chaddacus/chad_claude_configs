@@ -103,14 +103,28 @@ def is_verify_command(command: str) -> bool:
     return False
 
 
-def record_edit(ledger: dict, file_path: str, tool: str) -> None:
-    """Record an edit in the ledger."""
+def record_edit(ledger: dict, file_path: str, tool: str, agent_id: str | None = None) -> None:
+    """Record an edit in the ledger, stamped with the agent that authored it.
+
+    `agent_id` comes from the PostToolUse payload and is present only when the
+    hook fires inside a subagent call; absent (None) therefore means the main
+    thread. Recording it is what lets SubagentStop attribute an edit instead of
+    guessing from timestamps: the ledger is keyed by session_id, and subagents
+    inherit the parent's session_id, so parent and subagent edits otherwise land
+    in one undifferentiated pool. A start-time floor cannot separate them
+    because the parent keeps working *while* a subagent runs.
+    """
     now = time.time()
-    ledger.setdefault("edits", []).append({
+    entry: dict = {
         "file": file_path,
         "timestamp": now,
         "tool": tool,
-    })
+    }
+    # Omit the key entirely for main-thread edits so existing readers that do
+    # not know about attribution are unaffected by its presence.
+    if agent_id:
+        entry["agent_id"] = str(agent_id)
+    ledger.setdefault("edits", []).append(entry)
     ledger["last_edit_at"] = now
     ledger["verified_clean"] = False
 
@@ -238,7 +252,9 @@ def main():
         file_path = tool_input.get("file_path", "")
         ext = os.path.splitext(file_path)[1].lower()
         if ext in CODE_EXTENSIONS:
-            record_edit(ledger, file_path, tool_name)
+            # agent_id is present only when this PostToolUse fired inside a
+            # subagent; None here means the main thread authored the edit.
+            record_edit(ledger, file_path, tool_name, hook_input.get("agent_id"))
             save_ledger(ledger)
 
             # Collect recent unverified edits for async check

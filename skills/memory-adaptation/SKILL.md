@@ -1,6 +1,6 @@
 ---
 name: memory-adaptation
-description: Use when a coding task should adapt to durable user/project preferences stored in codex-mem; skip for trivial factual/chat requests.
+description: Use when a coding task should adapt to durable user/project preferences stored in omni-mem; skip for trivial factual/chat requests.
 policy_doc_kind: skill
 classification: canonical
 canonical_owner: self
@@ -11,7 +11,7 @@ lexical_guard_profile: stale_names,destructive_rollback,branch_policy_live
 
 # Memory Adaptation Skill
 
-This skill owns codex-mem preference retrieval and adaptation workflow only. Global and workspace policy own routing, git safety, review requirements, and notification rules.
+This skill owns omni-mem preference retrieval and adaptation workflow only. Global and workspace policy own routing, git safety, review requirements, and notification rules.
 
 ## Use When
 - The user asks to adapt style, workflow, or implementation behavior to prior preferences.
@@ -24,8 +24,8 @@ This skill owns codex-mem preference retrieval and adaptation workflow only. Glo
 - The user explicitly asks to ignore memory for this run.
 
 ## Workflow
-1. Retrieve context with `mcp__codex-mem__build_context` scoped to `cwd`.
-2. Run targeted `mcp__codex-mem__search` queries for `pref:` keys.
+1. Retrieve context with `mcp__omni-mem__build_context` scoped to `cwd`.
+2. Run targeted `mcp__omni-mem__search` queries for `pref:` keys.
 3. Resolve active preferences with deterministic order:
    1. explicit user > project > workspace > global
    2. higher confidence
@@ -40,7 +40,7 @@ This skill owns codex-mem preference retrieval and adaptation workflow only. Glo
 6. Save durable updates with `save_preference` (stable preference) or `save_memory` (episodic lesson).
 
 ## Degraded Memory Handling
-- If codex-mem returns a structured runtime error (`MEMORY_DAEMON_UNAVAILABLE`, `MEMORY_DB_CORRUPT`, `MEMORY_RECOVERY_REQUIRED`), record that incident explicitly instead of acting like retrieval returned an empty result.
+- If omni-mem returns a structured runtime error (`MEMORY_DAEMON_UNAVAILABLE`, `MEMORY_DB_CORRUPT`, `MEMORY_RECOVERY_REQUIRED`), record that incident explicitly instead of acting like retrieval returned an empty result.
 - Treat degraded memory as blocked retrieval evidence for non-trivial work.
 - Escalate to the adaptive memory runbook at [ADAPTIVE_MEMORY_RUNBOOK.md](/Users/chadsimon/.claude/standards/ADAPTIVE_MEMORY_RUNBOOK.md) when the runtime is degraded.
 - Do not save new memory entries until the daemon and DB health are restored.

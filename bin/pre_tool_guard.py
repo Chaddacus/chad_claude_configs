@@ -33,7 +33,12 @@ BLOCK_PATTERNS = [
     (r"git\s+reset\s+--hard", "git reset --hard (discards local changes; policy: only on explicit user request)"),
     (r"git\s+checkout\s+--\s", "git checkout -- (discards local changes; policy: only on explicit user request)"),
     (r"(curl|wget)\s[^|;&]*\|\s*(ba|z|da)?sh\b", "remote script piped to shell (curl|sh)"),
-    (r":\s*>\s*\S", "file truncation via colon redirect"),
+    # Anchored to command position. The shell idiom is `: > file` with `:` as the
+    # COMMAND; unanchored, this matched any `:>` anywhere in the string and hard-
+    # blocked ordinary work — Python format specs (f"{x:>4}", "{:>10}".format),
+    # jq/awk programs, and heredocs all trip it, and the operator sees
+    # "catastrophic operation" for a right-aligned print.
+    (r"(?:^|[;&|]\s*|\$\(\s*|`\s*):\s*>\s*\S", "file truncation via colon redirect"),
     (r"truncate\s+(?!--help|--version)", "file truncation"),
     (r"rm\s+(-[rf]+\s+)*\*\s*$", "rm -rf * (wildcard deletion in current dir)"),
 ]
@@ -55,6 +60,25 @@ WRITE_INDICATOR = re.compile(
     r"|write_text\(|json\.dump\b|\bmv\s|\bcp\s|\btruncate\b|\bshutil\.)"
 )
 
+
+# Secret-read guard: commands that dump secret file contents via non-cat tools.
+# The settings.json deny list blocks `cat .env*` etc. but not head/tail/less/more.
+# These patterns close that gap at the same layer as the catastrophic guard.
+SECRET_PATHS = re.compile(
+    r"(\.env\b|\.env\.\w+"
+    r"|~/\.ssh/id_|~/.ssh/\*"
+    r"|~/\.aws/credentials|~/\.aws/config"
+    r"|~/\.claude\.json"
+    r"|~/\.claude/kickstarter-tokens"
+    r"|~/\.config/op/"
+    r"|~/\.kube/config"
+    r"|~/\.npmrc"
+    r"|\.pypirc"
+    r"|\.pem\b|\.key\b)"
+)
+SECRET_READ_CMDS = re.compile(
+    r"\b(head|tail|less|more|strings|xxd|hexdump|od|base64)\b"
+)
 
 # Shell/interpreter -c invocations execute their quoted argument — those
 # quotes must NOT be stripped before matching.
@@ -136,6 +160,25 @@ def main():
             f"Command: {command}\n\nPolicy files (CLAUDE.md, route_manifest.json, "
             "control_plane.json, agents/*.md) must be edited via the Edit/Write "
             "tools so policy_edit_gate can score the change. Reads are unrestricted.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
+    # Secret-read guard: head/tail/less/more/strings on secret-path files.
+    # Closes the gap where settings.json deny blocks `cat .env*` but not
+    # other read commands on the same paths.
+    # Skip for inline exec commands (python3 -c, bash -c, etc.) — their
+    # quoted arguments are code, not shell commands, and string literals
+    # like 'head .env' in test suites are not actual file reads.
+    if (not INLINE_EXEC.search(match_text)
+            and SECRET_READ_CMDS.search(match_text)
+            and SECRET_PATHS.search(command)):
+        print(
+            "🛑 Blocked by pre-tool guard: reading secret file via shell command.\n"
+            f"Command: {command}\n\nSecret files (.env*, SSH keys, AWS creds, PEM/KEY, "
+            "1Password tokens) are blocked from shell reads. Use the Read tool "
+            "(which is also deny-listed for these paths) or ask the user to provide "
+            "the needed value.",
             file=sys.stderr,
         )
         sys.exit(2)

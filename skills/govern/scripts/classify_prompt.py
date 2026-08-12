@@ -11,6 +11,13 @@ Must complete in <100ms — no network calls, no heavy imports.
 Output: JSON envelope with additionalContext (route status + policy blocks).
 """
 
+# PEP 604 annotations (`str | None`) are evaluated at def time on the 3.9
+# interpreter this hook runs under, so they raise TypeError without this
+# import — and a hook that raises produces no envelope at all, silently
+# disabling classification for every prompt. route_classifier.py carries the
+# same import for the same reason.
+from __future__ import annotations
+
 import json
 import os
 import re
@@ -28,7 +35,9 @@ from hook_profile import should_run
 # NOTE: the should_run() profile gate is applied inside main(), not at import
 # time. An import-time sys.exit(0) made this module unimportable as a library
 # (tests, the shared classifier) and killed host processes silently.
-from route_classifier import classify, count_file_mentions, deliverable_kind
+from route_classifier import (
+    classify, count_file_mentions, deliverable_kind, is_continuation,
+)
 
 
 def classify_prompt(prompt: str) -> dict:
@@ -51,8 +60,21 @@ def classify_prompt(prompt: str) -> dict:
 # These blocks moved out of ~/.claude/CLAUDE.md on 2026-04-17 to save tokens
 # on R1/R2 prompts where they don't apply. They are injected into the session
 # via UserPromptSubmit additionalContext only when the classified route calls
-# for them. CLAUDE.md retains a minimal stub pointing at this file as the
-# source of truth.
+# for them.
+#
+# 2026-08-10: the global policy was cut over to the Claude Engineering
+# Foundation, so ~/.claude/CLAUDE.md plus ~/.claude/rules/*.md are now the
+# always-on engineering policy. That created a real hazard here — this file
+# was injecting a SECOND governance vocabulary (planning gates, auto_runtime
+# tracks, execution shapes) with no stated relationship to the Standards, so a
+# session received two completion protocols and no precedence between them.
+# R3_R4_GOVERNANCE_GATES now states that precedence explicitly and maps each
+# local tool to the Standard it implements. Keep it that way: when a Standard
+# and a local gate disagree, the Standard wins and the gate is the bug.
+#
+# ANTI_STOP_PATTERNS and ANTI_OVERRUN_PATTERNS are incident-derived refinements
+# of the foundation's autonomy and escalation rules. They use no legacy
+# vocabulary and are carried forward unchanged.
 # ---------------------------------------------------------------------------
 
 ANTI_STOP_PATTERNS = """## Anti-stop patterns (autonomous runs)
@@ -79,21 +101,29 @@ The mirror image of anti-stop. On 2026-06-10 an advisory request became an unrat
 4. **A defensible recommendation is a decision, not a menu.** When the fork is *which approach* for work the user already set in motion and you hold a clear recommendation, take it and continue (state choice + one-line why + reversibility) — do not bounce "A or B?" back. This carve-out does NOT loosen #1: inventing adjacent scope is still a fork you name and do not run."""
 
 
-R3_R4_GOVERNANCE_GATES = """## R3/R4 governed-lanes gates
+R3_R4_GOVERNANCE_GATES = """## R3/R4 governed lanes — how this machine implements the Standards
 
-- Use the governed path: run omni-mem retrieval, use planning-gate skill, satisfy prompt-contract requirements, run validation before closeout.
-- R3/R4 require planning-gate and evidence-backed track closure (auto_runtime update-node --evidence, cycle to OBJECTIVE_COMPLETE). The legacy Ralph postflight chain runs only under claude_run — it is NOT a live gate on this path; do not defer to it.
-- Align before broad execution: explore repo facts first, then resolve only the product/authority ambiguity that cannot be discovered locally.
-- Convert broad work into PRD/story-shaped slices when useful, but revalidate old PRDs, plans, and issue text against current code before trusting them.
-- Prefer vertical slices/tracer bullets over horizontal database-then-API-then-UI phases unless dependencies force a horizontal step.
-- Keep architecture explicit: identify modules/interfaces expected to change, prefer deep modules with simple testable boundaries, and avoid scattering behavior across shallow helpers.
-- R3 defaults to execution_shape=single_lane; bounded_swarm requires explicit justification and reuse-first proof.
-- R4 may use a reviewer-centered bounded_swarm with the same justification requirements.
-- Plans must include a solution ladder (L1_patch, L2_abstraction, L3_operating_surface) and select the highest useful layer.
-- Plans must record existing_primitives_considered, reuse_first_decision, estimated_files_touched, estimated_loc.
-- Plans that exceed the simplicity budget or introduce a new runtime surface without proof must fail closed.
-- finalize_gate.py must return ok=true before R3/R4 work is treated as approved.
-- For R3/R4, produce a manual enterprise scorecard if no automated rubric tool exists."""
+**Precedence:** the nine `~/.claude/rules/*.md` Standards are the engineering policy. \
+Everything below is how THIS machine executes them. Where the wording differs, the \
+Standard controls and the local tool is its implementation, not a second policy to \
+satisfy separately. Do not invent a gate that is not named here.
+
+| Standard | Local implementation on this machine |
+|---|---|
+| Ground before consequential decisions (Execution Orchestration) | `~/.omni-mem/bin/omem search` / `status`; the `ground-task` skill |
+| Plan meaningful work (Execution Orchestration) | the `plan-change` skill; the `planning-gate` skill when a fail-closed planning record is warranted |
+| FAST / MODULE / FULL verification (Verification & Evidence) | `verify-fast`, `verify-module`, `verify-full`; the repo declares its commands in `.claude/verification.json` |
+| Independent review (Execution Orchestration) | the `adversarial-review` skill or the `adversarial-reviewer` agent, fresh context, given the requirement + diff + evidence — never your own reasoning |
+| Evidence current for the final diff (Verification & Evidence) | `~/.claude/skills/planning-gate/scripts/finalize_gate.py` returns ok=true; `~/.claude/bin/auto_runtime.py update-node --evidence` records it |
+
+Lane rules with no direct Standard equivalent:
+
+- Explore repo facts first; then resolve only the product or authority ambiguity that cannot be discovered locally.
+- Revalidate old PRDs, plans, and issue text against current code before trusting them — they are claims, not truth.
+- Prefer vertical slices over horizontal database-then-API-then-UI phases unless a dependency forces the horizontal step.
+- Single lane by default. Parallel work requires a real dependency graph and disjoint write sets (Execution Orchestration, dependency-aware parallelism).
+- Choose the highest useful layer — patch, abstraction, or operating surface — and record which existing primitives you considered and why reuse was rejected.
+- A plan that exceeds the simplicity budget, or adds a new runtime surface without proof it is needed, fails closed (Engineering Constitution: smallest correct change)."""
 
 
 # Product-trigger keywords for product-orchestrator nudge. Mirrored in
@@ -190,6 +220,42 @@ def _read_hook_payload() -> tuple[str, str]:
     return prompt, session_id
 
 
+def _last_session_route(session_id: str) -> str | None:
+    """Most recent non-continuation route recorded for this session.
+
+    Reads the tail of route_decisions.jsonl rather than the whole file — the
+    log is ~1MB and this runs on the prompt hot path. Returns None when the
+    session has no prior decision (first prompt of a session).
+    """
+    if not session_id or session_id == "default":
+        return None
+    log = Path(
+        os.environ.get("CLAUDE_HOME", os.path.expanduser("~/.claude"))
+    ) / "state" / "route_decisions.jsonl"
+    try:
+        with log.open("rb") as f:
+            f.seek(0, os.SEEK_END)
+            size = f.tell()
+            window = min(size, 256 * 1024)
+            f.seek(size - window)
+            tail = f.read().decode("utf-8", errors="ignore")
+    except OSError:
+        return None
+    for line in reversed(tail.splitlines()):
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue  # partial first line from the window cut
+        if row.get("session_id") != session_id:
+            continue
+        if row.get("inherited_from_continuation"):
+            continue  # do not chain inheritance off another continuation
+        route = row.get("route_hint")
+        if route:
+            return str(route)
+    return None
+
+
 def main():
     # Profile gate (moved from import time so the module stays importable).
     if not should_run("classify_prompt"):
@@ -199,6 +265,24 @@ def main():
 
     result = classify_prompt(prompt)
     result["deliverable_kind"] = deliverable_kind(prompt)
+
+    # Continuation handling. A bare "yes"/"both"/"go ahead" is the user
+    # answering the turn already in flight, not a new ambiguous request — but
+    # is_vague (<5 words, no files) cannot see that and routed it R5, pulling
+    # the full governance block AND telling the agent to clarify ambiguity the
+    # user had just resolved. Inherit the route the session was already on so
+    # a continuation authorizing R4 work keeps its R4 gates; fall back to R1
+    # when there is no prior turn to continue.
+    inherited = False
+    if is_continuation(prompt):
+        prior = _last_session_route(session_id)
+        result["route_hint"] = prior or "R1"
+        result["governance_recommended"] = (result["route_hint"] in ("R3", "R4"))
+        result["reason"] = (
+            f"continuation of {prior} turn" if prior
+            else "continuation with no prior turn"
+        )
+        inherited = True
 
     # --- Slice 5: bandit enabler (additive instrumentation) -------------------
     # decision_id is the per-prompt join-key tying this routing decision to the
@@ -238,6 +322,7 @@ def main():
                 "deliverable_kind": result["deliverable_kind"],
                 "word_count": word_count,
                 "file_count": file_count,
+                "inherited_from_continuation": inherited,
             }, sort_keys=True) + "\n")
     except OSError:
         pass

@@ -72,13 +72,25 @@ MATRIX_TIMEOUT_S = int(os.environ.get("POLICY_EDIT_GATE_MATRIX_TIMEOUT", "1800")
 
 # Pointer-integrity gate: blocks edits that INTRODUCE a filesystem pointer that
 # does not resolve on disk. Independent of the benchmark matrix and of async
-# mode; covers a broader doc set (CLAUDE.md + standards/ + rules/ + agents/).
+# mode; covers a broader doc set (CLAUDE.md + standards/ + rules/ + agents/
+# + skills/).
+#
+# skills/*/SKILL.md was outside this set until 2026-07-26, and that is where
+# pointer rot actually collected: of the 35 danglers the widened audit found,
+# 14 were in skill docs the gate had never inspected. Skills carry the same
+# kind of load-bearing paths as standards (repo locations, CLI entrypoints),
+# so they get the same protection.
 POINTER_CHECK_SCRIPT = CLAUDE_HOME / "bin" / "policy_pointer_check.py"
 POINTER_WATCHED_GLOBS = [
     str(CLAUDE_HOME / "CLAUDE.md"),
     str(CLAUDE_HOME / "standards") + "/*.md",
     str(CLAUDE_HOME / "rules") + "/*.md",
     str(CLAUDE_HOME / "agents") + "/*.md",
+    str(CLAUDE_HOME / "skills") + "/*/SKILL.md",
+    # Progressive disclosure pushes load-bearing paths out of SKILL.md into
+    # references/. Gating only SKILL.md would mean splitting a skill silently
+    # moves its pointers out of protection.
+    str(CLAUDE_HOME / "skills") + "/*/references/*.md",
 ]
 POINTER_CHECK_TIMEOUT_S = int(os.environ.get("POLICY_EDIT_GATE_POINTER_TIMEOUT", "15"))
 

@@ -17,7 +17,7 @@ Scan for new Claude Code patterns from the community, diff against current setup
 **Report only:** `/ecosystem-update --dry-run` — fetches and scores but makes no changes
 **Professional / public:** `/ecosystem-update --professional` (aka "professional variant", "public variant", "chadacus variant") — generate the standard report, then render the scrubbed public version via the chadacus.dev pipeline. See "Professional Variant" section below.
 
-**Output:** `~/.claude/reports/ecosystem/YYYY-MM-DD.md`
+**Output:** `~/.claude/reports/ecosystem/{YYYY-MM-DD}.md`
 
 ---
 
@@ -29,7 +29,7 @@ Before fetching anything external, snapshot the current config so you can diff a
 2. Read `~/.claude/settings.json` — note: all hook events, permissions, MCPs, plugins
 3. Glob `~/.claude/agents/*.md` — read frontmatter of each (name, tools, model, isolation flag)
 4. Glob `~/.claude/skills/` — list all installed skill directories
-5. Search claude-mem: `mcp__claude-mem__search "ecosystem-update seen"` — retrieve previously reported item hashes to skip
+5. Search omni-mem: `mcp__omni-mem__search "ecosystem-update seen"` — retrieve previously reported item hashes to skip
 
 Also read `~/.claude/state/ecosystem-update-last-run.json` — the `seen_items` array contains identifiers of previously reported items. Skip any candidate whose identifier appears in that list.
 
@@ -39,7 +39,7 @@ Build an internal "already have" list dynamically from the above reads. Do not h
 
 ## Step 2 — Fetch Sources
 
-Run WebSearch and WebFetch in parallel where possible.
+Fetch in parallel where possible. **Tool preference:** use wigolo (`mcp__wigolo__search` / `mcp__wigolo__fetch`) when available — its persistent cache means repeat fetches are instant and `diff`/`cache` can show what changed on a source since the last run. Fall back to WebSearch/WebFetch only if wigolo is not granted. (Some agents, e.g. chad-work, carry wigolo but not WebSearch/WebFetch — the skill must still run there.)
 
 ### Tier 1 — Always fetch (daily signal)
 
@@ -48,16 +48,17 @@ Run WebSearch and WebFetch in parallel where possible.
 | `https://github.com/hesreallyhim/awesome-claude-code` | New skills, hooks, agents, orchestrators added to the catalog |
 | `https://howborisusesclaudecode.com/` | Boris's latest tips and workflow patterns |
 | `https://github.com/shanraisshan/claude-code-best-practice` | New tips, CLAUDE.md patterns, hook techniques |
+| Official settings JSON schema (`https://json.schemastore.org/claude-code-settings.json`) | Diff schema keys against current `settings.json` — new settings not yet adopted. Highest-yield source on the 2026-07-29 run when community catalogs were quiet |
 
-WebSearch supplement: `"claude code" new hooks agents skills site:github.com 2026`
+Search supplement: `"claude code" new hooks agents skills site:github.com {current year}`
 
 ### Tier 2 — Daily (skip if state file shows `tier2_last_run` within 24 hours)
 
 | Source | What to extract |
 |--------|----------------|
-| `https://arxiv.org/search/?searchtype=all&query=LLM+agent+coding&order=-announced_date_first` | Papers published in last 24 hours with applicable multi-agent or verification patterns |
+| `https://arxiv.org/search/?searchtype=all&query=LLM+agent+coding&order=-announced_date_first` | Papers published since `tier2_last_run` (not a fixed 24h — runs slip) with applicable multi-agent or verification patterns |
 
-WebSearch supplement: `arxiv.org LLM agent coding autonomous 2026 site:arxiv.org`
+Search supplement: `arxiv.org LLM agent coding autonomous {current year} site:arxiv.org`
 
 ### Tier 3 — Weekly (skip if state file shows `tier3_last_run` within 7 days)
 
@@ -154,6 +155,12 @@ If the file already exists (same-day rerun), overwrite it.
 ## Already Have
 {Comma-separated list of items that are already implemented — no need to revisit}
 
+## Auto-Implemented
+{Only on non-dry-run: list of Quick Wins actually applied, with file touched. Omit section if none.}
+
+## Blocked Quick Wins
+{Quick Wins the permission layer denied — one ready-to-run command or exact edit per item so Chad can apply manually. Omit section if none.}
+
 ## Rejected
 - {Item} — {reason: overengineered / already covered by X / alignment failure}
 
@@ -180,7 +187,7 @@ _Run at: {timestamp}_
 
 The `seen_items` array is the primary deduplication mechanism. Each entry is a short slug derived from the item title (lowercase, hyphens). On the next run, any candidate whose slug matches an entry in this list is immediately bucketed as HAVE and skipped.
 
-**claude-mem** — if available, also save a `type: reference` observation summarizing this run's Quick Wins. This is secondary — the state file is the source of truth. If claude-mem is unavailable, skip silently and note it in the report.
+**omni-mem** — if available, also save a `type: reference` observation via `mcp__omni-mem__save_memory` summarizing this run's Quick Wins. This is secondary — the state file is the source of truth. If omni-mem is unavailable, skip silently and note it in the report.
 
 ---
 
@@ -207,6 +214,8 @@ cp ~/.claude/agents/*.md ~/.claude/backups/{YYYY-MM-DD}/
 - Never rewrite agent or skill bodies — frontmatter additions only
 - Never create new files (those are Build Queue items, not Quick Wins)
 - Never modify a file that wasn't explicitly identified as the target in the Quick Win Action column
+
+**Permission-denial fallback:** if the permission classifier denies an edit (this happened on the 2026-06-07 run), do NOT retry or escalate. Move the item to the report's `## Blocked Quick Wins` section with the exact command/edit for Chad to apply manually, set `last_run_mode` in the state file to note the denial, and continue with the remaining Quick Wins.
 
 ---
 
@@ -251,42 +260,14 @@ Examples:
 
 ## Professional Variant
 
-When the user asks for the **professional**, **public**, or **chadacus** variant — or says "run it for the site" / "the resume version" — they mean: generate the standard report, then run it through the chadacus.dev scrubber/renderer to produce the public-facing version.
+The public-facing run: generate the standard report, then push it through the
+chadacus.dev scrubber/renderer to strip Chad-internal language and publish a
+neutral digest.
 
-The professional variant strips Chad-internal language ("this is how it would apply to chad", named agents, internal paths, slash-commands, harness-specific notes) and outputs a neutral "here's today's updates" digest suitable for the public site, resume material, or a Zoom-channel summary.
+**When the user asks for the professional, public, chadacus, or resume variant —
+or "run it for the site" — read `references/professional-variant.md`.** It
+carries the render/deploy pipeline, the scrubber surface, and the daily-cron
+contract. Skip it on a standard run.
 
-### Pipeline
-
-1. **Generate the standard report** — run Steps 1–7 above to produce `~/.claude/reports/ecosystem/YYYY-MM-DD.md`. Skip Step 8 (auto-implement) on professional runs unless explicitly asked — public output is the goal, not local config changes.
-2. **Render the public version** — invoke the chadacus.dev renderer:
-   ```bash
-   python3 /Users/chadsimon/code/chadacus.dev/scripts/render_ecosystem.py
-   ```
-   This reads every dated md report under `~/.claude/reports/ecosystem/`, scrubs Chad-perspective phrases via `scripts/parse_findings.py` (STRONG markers drop the whole clause, WEAK markers strip phrases inline), and writes:
-   - `chadacus.dev/public/ecosystem-update/YYYY-MM-DD/index.html` (public)
-   - `chadacus.dev/public/ecosystem-update/YYYY-MM-DD/internal/index.html` (Chad-POV mirror)
-   - `chadacus.dev/public/ecosystem-update/latest/` (symlink-style)
-   - `chadacus.dev/public/ecosystem-update/index.html` (rolled-up index)
-3. **Deploy (optional)** — `bash /Users/chadsimon/code/chadacus.dev/scripts/deploy.sh` rsyncs to the Linode VPS. Only run if the user asks to publish.
-4. **Summary output** — when the user wants a Zoom-channel summary, derive it from the structured findings in the public render (TL;DR + Quick Wins/Build Queue titles + source links). No Chad-internal markers.
-
-### Scrubber surface
-
-The scrubbing logic lives in `chadacus.dev/scripts/parse_findings.py`. STRONG markers (`CHAD_STRONG_MARKERS`) drop entire sentences; WEAK markers neutralize phrases. When the user adds a new internal-only term, update that file — not this skill.
-
-### Daily cron
-
-`chadacus.dev/scripts/daily_runner.sh` is the cron-installed wrapper that runs the skill via `claude --print` and then calls `deploy.sh`. It is the production loop for the public site. Manual `--professional` invocations should match its behavior: run skill → render → (optionally) deploy.
-
----
-
-## Source Reference
-
-| Source | Tier | Signal Type |
-|--------|------|-------------|
-| [awesome-claude-code](https://github.com/hesreallyhim/awesome-claude-code) | 1 | Community catalog |
-| [howborisusesclaudecode.com](https://howborisusesclaudecode.com/) | 1 | Creator tips |
-| [claude-code-best-practice](https://github.com/shanraisshan/claude-code-best-practice) | 1 | Community tips |
-| [arxiv LLM agent search](https://arxiv.org/search/?searchtype=all&query=LLM+agent+coding&order=-announced_date_first) | 2 | Research papers |
-| [awesome-claude-code-toolkit](https://github.com/rohitg00/awesome-claude-code-toolkit) | 2 | Comprehensive catalog |
-| [Claude Code docs](https://code.claude.com/docs/) | 2 | Official features |
+> On professional runs, skip Step 8 (auto-implement) unless explicitly asked —
+> public output is the goal, not local config changes.

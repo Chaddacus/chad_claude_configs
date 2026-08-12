@@ -64,7 +64,15 @@ VERDICT_STATES = {
     "blocked_migration_defect",
     "escalate",
 }
-ACTIVE_RUNTIME_STATES = {"queued", "dispatched", "in_progress", "awaiting_verifier"}
+# Runtime states that OCCUPY a dispatch slot, i.e. count against max_parallel_packets.
+# "queued" is deliberately absent: a queued packet is precisely one that has not been
+# dispatched yet, and build_objective_status_payload already classifies it as pending
+# rather than active. Counting it here made the very first dispatch impossible --
+# build_schedule_payload seeds every packet "queued", so under serial_only the whole
+# budget was consumed before anything ran and validate_schedule_state recomputed
+# runnable_set as empty, contradicting the runnable_set and safe_momentum_available
+# that the same payload had just written.
+ACTIVE_RUNTIME_STATES = {"dispatched", "in_progress", "awaiting_verifier"}
 VERIFIER_OUTPUTS = VERDICT_STATES
 FORWARD_MOTION_STATES = {
     "closure_advancing",

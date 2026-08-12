@@ -18,12 +18,20 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def _cleanup_route_files():
+    """Remove both artifacts a gate run leaves behind: the route file the test
+    writes, and the audit file write_audit() emits into state/ when the gate
+    blocks. The audit half was missing and had accumulated 308 files."""
     yield
-    for f in glob.glob("/tmp/claude-route-sgtest-*.json"):
-        try:
-            os.unlink(f)
-        except OSError:
-            pass
+    patterns = [
+        "/tmp/claude-route-sgtest-*.json",
+        str(Path.home() / ".claude" / "state" / "stop_gate_audit-sgtest-*.jsonl"),
+    ]
+    for pattern in patterns:
+        for f in glob.glob(pattern):
+            try:
+                os.unlink(f)
+            except OSError:
+                pass
 
 # Direct import of stop_gate via sys.path (same pattern as test_classify_prompt)
 BIN = Path.home() / ".claude" / "bin"
@@ -127,14 +135,41 @@ class TestLexicalPools:
         path = f"/tmp/claude-route-{sid}.json"
         old = time.time() - (sg.ROUTE_FILE_MAX_AGE_S + 60)
         os.utime(path, (old, old))
+        monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", _route_file("advice"))
         rc, env = _run_main(monkeypatch, capsys, "I recommend approach B.", sid)
         assert env.get("decision") == "block"
 
     def test_world_writable_route_file_ignored(self, monkeypatch, capsys):
         sid = _route_file("advice")
         os.chmod(f"/tmp/claude-route-{sid}.json", 0o666)
+        monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", _route_file("advice"))
         rc, env = _run_main(monkeypatch, capsys, "I recommend approach B.", sid)
         assert env.get("decision") == "block"
+
+    # Both tests above pin CLAUDE_CODE_SESSION_ID to a *valid advice* route
+    # file on purpose. read_deliverable_kind walks
+    # [session_id, $CLAUDE_CODE_SESSION_ID, $CLAUDE_SESSION_ID], and until
+    # 2026-07-27 a rejected file fell through to the next candidate instead of
+    # to strict — so the ambient session's route file silently supplied the
+    # "advice" the stale/world-writable checks had just refused. Unpinned,
+    # these two only failed when the developer happened to be running inside a
+    # Claude session whose own prompt classified as advice.
+
+    def test_env_session_used_when_payload_has_no_route_file(self, monkeypatch):
+        """Positive control for the strictness above: a MISSING file must
+        still advance to the env candidate, or the fix would be
+        indistinguishable from deleting the fallback entirely."""
+        monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", _route_file("advice"))
+        missing = f"sgtest-none-{uuid.uuid4().hex[:8]}"
+        assert sg.read_deliverable_kind(missing) == "advice"
+
+    def test_malformed_route_file_falls_back_strict(self, monkeypatch):
+        """A fresh, correctly-owned file with no deliverable_kind (older
+        classify_prompt) is decided, not skipped — same leak, milder shape."""
+        sid = f"sgtest-{uuid.uuid4().hex[:10]}"
+        Path(f"/tmp/claude-route-{sid}.json").write_text(json.dumps({"route_hint": "R3"}))
+        monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", _route_file("advice"))
+        assert sg.read_deliverable_kind(sid) == "artifact"
 
 
 @pytest.mark.unit

@@ -20,6 +20,14 @@ Policy shape:
   change surface. Routing is not permissioning; an R1 answer mutates nothing.
 - Vague prompts (<5 words, no file mentions, not a simple question) -> R5,
   matching the track runtime's historical is_vague contract.
+- Continuations ("yes", "both", "go ahead") are detected here by
+  is_continuation() but NOT routed here. Deciding what a continuation means
+  requires the prior turn, and classify() is a pure function of text with no
+  session access. The UserPromptSubmit hook owns that step: it inherits the
+  session's last route from route_decisions.jsonl. This asymmetry is
+  deliberate, not the H4 drift this module was created to end — the hook has
+  strictly more context than the track runtime, and a track objective is
+  never a bare continuation.
 - Every call returns classification_evidence so all consumers share one set
   of extracted facts.
 
@@ -89,6 +97,69 @@ SIMPLE_INDICATORS = {
     "tell me", "describe", "define", "meaning of", "difference between",
     "translate",
 }
+
+# ---------------------------------------------------------------------------
+# Continuation vocabulary
+#
+# A short reply that only affirms, declines, or says "keep going" is NOT an
+# ambiguous new request — it is the user answering the turn already in flight.
+# is_vague (<5 words, no files, not a simple question) cannot tell the two
+# apart, so "yes" / "both" / "go ahead" classified R5 and pulled the full
+# governance block: ~1200 tokens on the single most common interactive prompt
+# shape, PLUS an R5 directive to "clarify ambiguity before execution" on a
+# prompt where the user had just removed the ambiguity. Asking again is
+# exactly the permission-seeking the anti-stop rules forbid.
+#
+# Deliberately NARROW. R5's real targets ("fix it", "make it faster") carry a
+# verb that is absent here, so they still route R5. A prompt qualifies only if
+# EVERY word is in this set — "yes but refactor the auth layer" is not a
+# continuation.
+CONTINUATION_WORDS = {
+    # affirm
+    "yes", "y", "yeah", "yep", "yup", "ok", "okay", "k", "sure", "correct",
+    "right", "agreed", "approved", "approve", "ack", "acked", "lgtm",
+    "perfect", "great", "good", "nice", "exactly", "indeed", "true",
+    # decline / halt — steers the turn in flight, starts no new work
+    "no", "nope", "nah", "stop", "halt", "wait", "pause", "hold", "cancel",
+    "skip", "nevermind", "never", "mind", "false",
+    # proceed
+    "go", "goes", "going", "ahead", "continue", "continued", "proceed",
+    "keep", "carry", "on", "next", "onward", "resume", "finish", "complete",
+    "do", "doit", "ship", "run", "send", "commit", "apply", "merge", "start",
+    "begin", "again", "more", "further", "rest", "remaining",
+    # selection among options already presented
+    "both", "all", "either", "any", "each", "one", "two", "three", "first",
+    "second", "third", "last", "former", "latter", "option", "a", "b", "c",
+    # fillers / politeness
+    "it", "that", "this", "them", "those", "these", "the", "and", "then",
+    "please", "thanks", "thank", "you", "now", "too", "also", "as", "well",
+    "is", "was", "fine", "works", "worked", "cool", "yours", "your", "sounds",
+    "sound", "look", "looks", "seems", "makes", "sense", "for", "me", "us",
+    "i", "we", "let", "lets", "let's", "with", "to", "up", "of", "in",
+}
+
+# Word extractor for the continuation test — apostrophes kept so "let's" and
+# "don't" stay single tokens rather than splitting into a bare "s"/"t".
+_WORD_RE = re.compile(r"[a-z']+")
+
+# Continuations are short by nature. The cap keeps a long prose paragraph made
+# of common words from ever qualifying.
+CONTINUATION_MAX_WORDS = 6
+
+
+def is_continuation(text: str) -> bool:
+    """True when the prompt is purely an affirmation/decline/'keep going'.
+
+    Such a prompt carries no new work signal of its own — the work was
+    classified on the turn that described it — so it must not be treated as
+    ambiguous. Callers with session state should inherit the prior route;
+    stateless callers should treat it as low-risk.
+    """
+    words = _WORD_RE.findall(text.lower())
+    if not words or len(words) > CONTINUATION_MAX_WORDS:
+        return False
+    return all(w in CONTINUATION_WORDS for w in words)
+
 
 # File path pattern. The trailing \b prevents prefix phantom-matches
 # (".json" inside ".jsonl" — the bug that inflated file_count on 99.9% of

@@ -7,20 +7,25 @@ in_verifier_scope: true
 lexical_guard_profile: stale_names
 ---
 
-# Ralph Loop Runbook (v1.4)
+# Ralph Loop Runbook (v1.5)
+
+> **Canonical.** `skills/planning-gate/references/RALPH_LOOP_RUNBOOK.md` is a
+> pointer to this file. Do not re-fork it: the two copies drifted apart on the
+> wrapper name and the real-binary variable, and both ended up wrong (v1.5,
+> 2026-07-27).
 
 > **Status (2026-07-16 audit H3/M8): LEGACY.** This chain executes only under
 > `claude_run`/`ralph_done_loop` — the auto_runtime track path never runs it
 > (`build_closure` records `postflight_executed:false`; no consumer blocks on
 > it). Live-path R3/R4 verification is owned by planning-gate + evidence-backed
 > track closure (+ the CP6 outer loop when driving). Known dead refs below:
-> the `/Users/chadsimon/.claude/tests/postflight` pytest target no longer
+> the `/Users/chadsimon/.claude/tests/postflight` pytest target no longer <!-- pointer-check:skip -->
 > exists, and `state/postflight_runs/` is created only when a claude_run run
 > actually executes.
 
 ## Scope
 Operational runbook for Postflight Completion Gate (Ralph Loop) enforcement on `R3/R4` routes.
-Auto-continue is enforced for `codex exec` finalize flows.
+Auto-continue is enforced for `claude exec` finalize flows.
 
 ## Files
 - Wrapper: `/Users/chadsimon/.claude/bin/claude_run`
@@ -40,18 +45,18 @@ Auto-continue is enforced for `codex exec` finalize flows.
   - wrapper auto-continues on `revise` until `approve` or hard-stop
 
 ## Exec Contract
-`codex_run` auto-continue supports only:
-- `codex exec "<prompt>"`
-- `codex exec -` (prompt from stdin)
+`claude_run` auto-continue supports only:
+- `claude exec "<prompt>"`
+- `claude exec -` (prompt from stdin)
 
 For `--finalize-attempt` with `R3/R4`, non-`exec` invocation is rejected:
 - `reason_code=UNSUPPORTED_EXEC_MODE_FOR_AUTOCONTINUE`
 - `exit_code=30`
 
 ## Rollout
-1. Bind default `codex` entrypoint to wrapper shim:
-   - `which codex`
-   - expected: `/Users/chadsimon/.local/bin/codex`
+1. Bind default `claude` entrypoint to wrapper shim:
+   - `which claude`
+   - expected: `/Users/chadsimon/.local/bin/claude`
 2. Set `postflight.mode` to `audit`.
 3. Run for a short canary window and collect `ralph-meta` telemetry.
 4. Confirm parse errors and branch predicate failures are zero (or explained).
@@ -60,15 +65,15 @@ For `--finalize-attempt` with `R3/R4`, non-`exec` invocation is rejected:
 ## Verify Commands
 ```bash
 # Verify wrapper binding and real binary target.
-which codex
-echo "$CODEX_REAL_BIN"
+which claude
+echo "$CLAUDE_REAL_BIN"
 
 # Script syntax checks.
 bash -n /Users/chadsimon/.claude/bin/claude_run
 python3 -m py_compile /Users/chadsimon/.claude/bin/ralph_done_loop.py
 
 # Focused reliability tests.
-pytest -q /Users/chadsimon/.claude/tests/postflight
+pytest -q /Users/chadsimon/.claude/tests/postflight  <!-- pointer-check:skip -->
 ```
 
 ## Canary Checks
@@ -87,14 +92,18 @@ pytest -q /Users/chadsimon/.claude/tests/postflight
 ## Acceptance Predicate Command
 ```bash
 python3 /Users/chadsimon/.claude/bin/postflight_acceptance_check.py \
-  --run-summary /Users/chadsimon/.claude/state/postflight_runs/<task>/<track>/<run>/run_summary.json \
-  --out /Users/chadsimon/.claude/state/postflight_runs/<task>/<track>/<run>/acceptance_check.json \
+  --run-summary /Users/chadsimon/.claude/state/postflight_runs/<task>/<track>/<run>/run_summary.json \  <!-- pointer-check:skip -->
+  --out /Users/chadsimon/.claude/state/postflight_runs/<task>/<track>/<run>/acceptance_check.json \  <!-- pointer-check:skip -->
   --mode enforce
 ```
 
 ## Troubleshooting
 - `REAL_BIN_NOT_FOUND`:
-  - set `CODEX_REAL_BIN` or install/alias `codex.real`.
+  - set `CLAUDE_REAL_BIN` to an executable, or install/alias `claude.real`.
+  - `resolve_real_bin()` (`bin/claude_run:157`) tries, in order: `$CLAUDE_REAL_BIN`
+    (must be executable), `claude.real` on PATH, `/Users/chadsimon/.local/bin/claude`,
+    then `claude` on PATH. `CODEX_REAL_BIN` is a *different* variable owned by
+    planning-gate's objective_runtime; it has no effect here.
 - `LOCK_BUSY`:
   - wait and retry, or inspect lock metadata under `/Users/chadsimon/.claude/state/locks/`.
 - `ROUTE_CLASS_IMMUTABLE_VIOLATION`:
@@ -109,4 +118,4 @@ python3 /Users/chadsimon/.claude/bin/postflight_acceptance_check.py \
    - set `postflight.enabled=false`.
 3. Keep telemetry extraction running for forensic visibility.
 4. Validate rollback:
-   - run one `R3/R4` finalize attempt and confirm wrapper returns underlying codex exit behavior.
+   - run one `R3/R4` finalize attempt and confirm wrapper returns underlying claude exit behavior.

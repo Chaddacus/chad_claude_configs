@@ -1,6 +1,6 @@
 ---
 name: deep-research
-description: Rigorous, evidence-bound web + documentation research that never launders model-memory or a hallucinated fetch into a "fact." WebSearch to DISCOVER, curl to VERIFY, cite the real URL, tag every claim by verification tier, drop anything you can't ground. Use whenever a decision needs grounding in real external sources (genre/market research, technical/API docs, lifecycle/business facts, science). Produces a sourced research doc, not opinions.
+description: Evidence-bound web + docs research — WebSearch to discover, curl to verify, cite real URLs, tag claims by verification tier, drop what can't be grounded. Use when decisions need external grounding (market, technical, API, science). Produces a sourced research doc.
 policy_doc_kind: skill
 classification: canonical
 authority_level: procedural

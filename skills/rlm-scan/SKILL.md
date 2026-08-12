@@ -1,10 +1,6 @@
 ---
 name: rlm-scan
-description: >
-  RLM (Recursive Language Model) codebase scanner. Use when asked to scan a codebase,
-  analyze project architecture, find security issues, map codebase structure, understand
-  an unfamiliar repo, or search for patterns across a project. Produces a cached index
-  auto-loaded on session start so Claude does not re-learn the same codebase every session.
+description: "Codebase scanner — architecture mapping, security scan, pattern search across a repo. Cached index auto-loads on session start so Claude doesn't re-learn the codebase every session."
 context: fork
 policy_doc_kind: skill
 classification: canonical

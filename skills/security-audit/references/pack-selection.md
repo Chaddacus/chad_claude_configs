@@ -16,7 +16,7 @@ User ask mentions…
 Additional heuristics (apply after the tree):
 
 - If the target imports `anthropic`, `openai`, LangChain, LlamaIndex, or declares MCP servers → always pass `--profile ai-app` regardless of pack.
-- If the target is openshield itself (`packages/rubric` exists) → pass `--suppressions /Users/chadsimon/code/openshield/openshield-suppressions.json` to avoid analyzer-on-analyzer false positives.
+- If the target is openshield itself (`packages/rubric` exists) → pass `--suppressions /Users/chadsimon/chad_work/openshield/openshield-suppressions.json` to avoid analyzer-on-analyzer false positives.
 - If the user says "strict" or "gate" → add `--fail-on-strict --fail-on-band operational`.
 
 ## Pack characteristics at a glance

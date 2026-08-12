@@ -1,23 +1,23 @@
 ---
 name: evolve
-description: Self-evolving autonomous development mode. Pops the next task from ~/.claude/evolve/task_queue.jsonl, runs it through /orchestrate-local, extracts structured observations, auto-analyzes failure patterns across run history, applies safe additive fixes to prompts/skills/presets, and prints fitness deltas. Use when the user wants the orchestrator system to measurably improve across successive builds without manual prompt-engineering between runs. Pairs with /loop — `/loop /evolve` runs one task per iteration.
+description: Self-evolving dev mode — pops the next task from the evolve queue, runs /drive --local-worker, extracts observations, auto-patches prompts/skills/presets from failure patterns, prints fitness deltas. Use when the orchestrator should improve across builds without manual prompt-engineering.
 ---
 
 # /evolve — Self-evolving autonomous development
 
-The outer loop around `/orchestrate-local` that turns each build run into training signal for the orchestrator itself. Ships tasks, measures failures, auto-applies additive fixes, tracks fitness over time.
+The outer loop around `/drive --local-worker` that turns each build run into training signal for the orchestrator itself. Ships tasks, measures failures, auto-applies additive fixes, tracks fitness over time.
 
 ## When to use
 
 - You want the orchestrator to get better at building things across successive runs without hand-editing prompts between builds.
 - You have a task queue (or are fine using the curated kata list at `~/.claude/evolve/task_queue.jsonl`).
-- You're OK with the system literally editing its own `.goosehints` and skill files within the auto-apply safety envelope.
+- You're OK with the system editing its own skill files and presets within the auto-apply safety envelope.
 
 ## When NOT to use
 
-- For a single one-off project — just use `/orchestrate-local` directly.
+- For a single one-off project — just use `/drive --local-worker` directly.
 - If the LM Studio upstream is down — preflight will fail, /evolve will mark the task as infra_down and try the next one, but if the whole loop can't see the model, nothing progresses.
-- If you want hand control over every rule that ends up in `.goosehints` — /evolve auto-appends to it.
+- If you want hand control over every rule — /evolve auto-appends to skill files and presets.
 
 ## Workflow — one iteration
 
@@ -33,9 +33,9 @@ Abort if:
 - Output has `"error": "empty queue"` — nothing to do.
 - Output has `"error": "no pending tasks"` — queue fully consumed or stuck.
 
-### Phase 1-3 — Run /orchestrate-local on the task
+### Phase 1-3 — Run /drive --local-worker on the task
 
-Follow the full `/orchestrate-local` workflow on the staged workspace and goal:
+Follow the full `/drive --local-worker` workflow on the staged workspace and goal:
 - Plan slices (≤3 files each, deterministic verify per slice).
 - Write acceptance scripts in `<workspace>/.claude-gates/verify_slice_N.sh` BEFORE dispatching.
 - For each slice: dispatch via `~/.claude/bin/goose_dispatch.py`, SAVE the stdout (JSON) to `<workspace>/.claude-gates/slice_N_result.json`, interpret outcome, escalate to supervisor-takeover on `fail`/`escalate`/`gate_cheat_suspected`.
@@ -75,16 +75,17 @@ Do NOT summarize every slice — the history file captures that.
 ## Safety envelope (what /evolve CAN and CANNOT self-modify)
 
 **Can auto-modify:**
-- `~/.goosehints` (append rules)
-- `~/.config/goose/skills/*.md` (append to existing skills, add new skills)
+- `~/.claude/skills/*/SKILL.md` (append to existing skill bodies only, not frontmatter)
 - `~/.claude/bin/presets/*.sh` (add new presets; existing are modifiable if proposal is additive)
 
 **Cannot auto-modify (proposals get saved but require manual review):**
 - `~/.claude/bin/goose_dispatch.py` (dispatcher logic)
+- `~/.claude/bin/outer_loop_driver.py` (CP6 driver)
 - `~/.claude/bin/auto_runtime.py` (governance stack)
 - `~/.claude/bin/evolve_*.py` (the evolve system itself)
 - `~/.claude/settings.json` / `settings.local.json`
-- Anything outside `~/.claude/` or `~/.goosehints`
+- `~/.claude/agents/*.md` (agent definitions)
+- Anything outside `~/.claude/`
 
 **Diff size cap:** proposals adding > 500 characters in one block require manual review regardless of target.
 
@@ -98,7 +99,7 @@ This makes /evolve self-pace: run one task, record, analyze, apply, print fitnes
 
 ## Common pitfalls
 
-- **Weak acceptance gates**: /evolve inherits the calibration skill from /orchestrate-local — don't write substring greps as gates. Use presets + Phase 3.5 smoke.
+- **Weak acceptance gates**: /evolve inherits the calibration discipline from /drive — don't write substring greps as gates. Use presets + Phase 3.5 smoke.
 - **Skipping Phase 3.5 smoke for speed**: the smoke is non-negotiable. A task that skips it doesn't count as a successful run and shouldn't be recorded.
 - **Not saving dispatch JSONs**: without the dispatch result files, `evolve_extract.py` can't classify failures. Always capture stdout per dispatch to `.claude-gates/slice_N_result.json`.
 - **Adding too many tasks at once**: start with 3-5 tasks, run them, verify proposals are sensible, THEN add more. Don't queue 50 kata tasks and run unsupervised overnight on v1.

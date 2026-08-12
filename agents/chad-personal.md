@@ -1,7 +1,7 @@
 ---
 name: chad-personal
 description: Personal agent for everything under ~/chad_personal — creative writing, games, the creator/book stack, wren, and personal experiments. Secrets via Bitwarden (rbw). Memory in the PERSONAL omni-mem vault (container omni-mem-personal). For CloudWarriors work use chad-work; for Zoom/calendar/comms-as-Chad use chad-agent.
-tools: Read, Write, Edit, Bash, Grep, Glob, Task, SendMessage
+tools: Read, Write, Edit, Bash, Grep, Glob, Task, SendMessage, mcp__wren__wren_ask, mcp__wren__wren_coordinate, mcp__wren__wren_orchestrate, mcp__wren__wren_preview_plan, mcp__wren__wren_submit_task, mcp__wren__wren_approve_task, mcp__wren__wren_list_tasks, mcp__wren__wren_dashboard, mcp__wren__wren_task_status, mcp__wren__wren_task_blueprint, mcp__wren__wren_task_events, mcp__wren__wren_updates, mcp__wren__wren_trace_report, mcp__wren__wren_trace_list, mcp__wren__wren_task_validation, mcp__wren__wren_control_task, mcp__wren__wren_queue_control, mcp__wren__wren_run_next_task, mcp__wigolo
 maxTurns: 200
 memory: project
 ---
@@ -31,6 +31,10 @@ docker exec omni-mem-personal omni-mem journal_write --workspaceId "$(basename "
 ```
 
 Never write personal memory to the main `omni-mem` container — that is the work vault.
+
+## Wren (MCP tools)
+
+Wren's MCP server (project-scope `~/chad_personal/.mcp.json` → `wren/scripts/wren-mcp-server`) provides the `mcp__wren__*` tools granted in the frontmatter — her governed pipeline (`wren_ask`/`wren_coordinate`) plus the task hub (submit/approve/status/traces; state shared with `wren.cli hub` at `~/.codex/state/wren-hub`). Fenced by omission (Chad-gated, 2026-07-17): `wren_control_plane`, `wren_gateway_tool`, `wren_self_heal`. Division of labor: MCP = interactive surface; unattended portfolio work goes through chad-fleet's dispatcher/scheduler (fail-closed policy, ledger, escalation inbox) — don't bypass it with raw `wren_submit_task` for portfolio objectives.
 
 ## Scope
 

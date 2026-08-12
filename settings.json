@@ -1,12 +1,14 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "cleanupPeriodDays": 30,
   "env": {
-    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
     "POLICY_EDIT_GATE_ASYNC": "1",
+    "FOUNDATION_GATE_MODE": "enforce",
     "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "400000",
     "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
     "OTEL_METRICS_EXPORTER": "otlp",
     "OTEL_LOGS_EXPORTER": "otlp",
+    "OTEL_TRACES_EXPORTER": "otlp",
     "OTEL_EXPORTER_OTLP_PROTOCOL": "grpc",
     "OTEL_EXPORTER_OTLP_ENDPOINT": "http://127.0.0.1:4317",
     "OTEL_EXPORTER_OTLP_INSECURE": "true",
@@ -295,6 +297,17 @@
         ]
       }
     ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 /Users/chadsimon/.claude/bin/stop_reason_telemetry.py",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
     "SubagentStop": [
       {
         "hooks": [
@@ -469,16 +482,28 @@
     "static-analysis@trailofbits": false,
     "insecure-defaults@trailofbits": true,
     "sharp-edges@trailofbits": true,
-    "frontend-design@claude-plugins-official": true
+    "frontend-design@claude-plugins-official": true,
+    "claude-engineering-foundation@claude-engineering-foundation": true
   },
+  "extraKnownMarketplaces": {
+    "claude-engineering-foundation": {
+      "source": {
+        "source": "directory",
+        "path": "/Users/chadsimon/chad_work/claude_engineering_foundation"
+      }
+    }
+  },
+  "outputStyle": "Engineering STE",
   "feedbackSurveyRate": 0,
   "alwaysThinkingEnabled": true,
-  "effortLevel": "xhigh",
+  "effortLevel": "high",
+  "advisorModel": "opus",
   "agent": "chad-twin",
   "tui": "fullscreen",
   "skipDangerousModePermissionPrompt": true,
   "autoCompactEnabled": true,
   "remoteControlAtStartup": true,
+  "inputNeededNotifEnabled": true,
   "agentPushNotifEnabled": true,
   "skipAutoPermissionPrompt": true,
   "mcpServers": {}

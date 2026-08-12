@@ -32,6 +32,7 @@ behavioral; lookup material lives here). This file is pointer-only — no rules.
 - Claude Code best-practices research base (cited, update-log-driven): `/Users/chadsimon/.claude/standards/CLAUDE_CODE_BEST_PRACTICES.md`
 - Refinements full text (rationale/examples behind the constitution's bullets): `/Users/chadsimon/.claude/standards/REFINEMENTS.md`
 - Secret access via rbw (usage runbook): `/Users/chadsimon/.claude/standards/SECRETS_RBW.md`
+- Output style — Simplified Technical English (prose rules + scope carve-outs): `/Users/chadsimon/.claude/standards/OUTPUT_STYLE_STE.md`
 
 - Runtime debugging / fault isolation (`--safe-mode`, hooks, guards): `/Users/chadsimon/.claude/standards/DEBUGGING.md`
 - Adaptive memory: `/Users/chadsimon/.claude/standards/ADAPTIVE_MEMORY_RUNBOOK.md`
@@ -49,6 +50,7 @@ behavioral; lookup material lives here). This file is pointer-only — no rules.
 - Obsessive loop orchestrator/worker workflow: `/Users/chadsimon/.claude/standards/obsessive-loop-orchestrator.md`
 - Reviewer bash guard (deferred-work stub): `/Users/chadsimon/.claude/standards/reviewer-bash-guard.md`
 - Subagent context passing (parent-prompt pattern): `/Users/chadsimon/.claude/standards/subagent-context-passing.md`
+- Canonical workflow phases (9-phase pipeline): `/Users/chadsimon/.claude/standards/WORKFLOW_PHASES.md`
 
 ## Memory architecture (two-tier)
 
