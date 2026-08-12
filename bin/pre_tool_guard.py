@@ -61,6 +61,25 @@ WRITE_INDICATOR = re.compile(
 )
 
 
+# Secret-read guard: commands that dump secret file contents via non-cat tools.
+# The settings.json deny list blocks `cat .env*` etc. but not head/tail/less/more.
+# These patterns close that gap at the same layer as the catastrophic guard.
+SECRET_PATHS = re.compile(
+    r"(\.env\b|\.env\.\w+"
+    r"|~/\.ssh/id_|~/.ssh/\*"
+    r"|~/\.aws/credentials|~/\.aws/config"
+    r"|~/\.claude\.json"
+    r"|~/\.claude/kickstarter-tokens"
+    r"|~/\.config/op/"
+    r"|~/\.kube/config"
+    r"|~/\.npmrc"
+    r"|\.pypirc"
+    r"|\.pem\b|\.key\b)"
+)
+SECRET_READ_CMDS = re.compile(
+    r"\b(head|tail|less|more|strings|xxd|hexdump|od|base64)\b"
+)
+
 # Shell/interpreter -c invocations execute their quoted argument — those
 # quotes must NOT be stripped before matching.
 INLINE_EXEC = re.compile(r"\b((ba|z|da)?sh|python3?|perl|ruby|node)\s+(-[A-Za-z]*\s+)*-[ce]\b")
@@ -141,6 +160,25 @@ def main():
             f"Command: {command}\n\nPolicy files (CLAUDE.md, route_manifest.json, "
             "control_plane.json, agents/*.md) must be edited via the Edit/Write "
             "tools so policy_edit_gate can score the change. Reads are unrestricted.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
+    # Secret-read guard: head/tail/less/more/strings on secret-path files.
+    # Closes the gap where settings.json deny blocks `cat .env*` but not
+    # other read commands on the same paths.
+    # Skip for inline exec commands (python3 -c, bash -c, etc.) — their
+    # quoted arguments are code, not shell commands, and string literals
+    # like 'head .env' in test suites are not actual file reads.
+    if (not INLINE_EXEC.search(match_text)
+            and SECRET_READ_CMDS.search(match_text)
+            and SECRET_PATHS.search(command)):
+        print(
+            "🛑 Blocked by pre-tool guard: reading secret file via shell command.\n"
+            f"Command: {command}\n\nSecret files (.env*, SSH keys, AWS creds, PEM/KEY, "
+            "1Password tokens) are blocked from shell reads. Use the Read tool "
+            "(which is also deny-listed for these paths) or ask the user to provide "
+            "the needed value.",
             file=sys.stderr,
         )
         sys.exit(2)
