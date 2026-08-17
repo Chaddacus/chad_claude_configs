@@ -164,16 +164,67 @@ def product_trigger_block(prompt: str) -> str:
     return ""
 
 
+# ---------------------------------------------------------------------------
+# Per-route dispatch directives (2026-08-16).
+#
+# The 2026-08-16 audit found the classifier routed nothing: route_hint was
+# logged as "bandit training data" no consumer read, while every task executed
+# on the frontier main model and unpinned subagents inherited it. The product
+# offers no per-turn main-model switch (verified, Claude Code 2.1.233), so the
+# enforced routing surface is subagent spawn time. Topology: the frontier main
+# model is the ORCHESTRATOR — it classifies, dispatches, integrates, and
+# renders verdicts; bulk execution runs on tiered subagents. These directives
+# state each route's dispatch rules; bin/route_spawn_gate.py (PreToolUse on
+# Agent|Task) enforces the ceilings — over-ceiling, missing-model, and fork
+# spawns on gated routes are denied, not advised.
+#
+# Kept deliberately short for R1/R2: these inject on EVERY prompt, and the
+# R1/R2 blocks were moved out of CLAUDE.md in April precisely to save tokens.
+# ---------------------------------------------------------------------------
+
+ROUTE_DIRECTIVES = {
+    "R1": """[route-directive] R1 · spawn ceiling: sonnet (gate-enforced). \
+Conversational/factual turn — answer directly from the main loop; no \
+subagents unless a lookup genuinely requires one (then pass an explicit \
+model: haiku or sonnet).""",
+    "R2": """[route-directive] R2 · spawn ceiling: sonnet (gate-enforced). \
+Small-scope work — the frontier main loop orchestrates and may edit small \
+things directly, but delegates anything heavy: file sweeps → model: haiku, \
+implementation slices → model: sonnet. Every Agent spawn must carry an \
+explicit model at or below the ceiling; absent model = inherit = frontier \
+and is denied.""",
+    "R3": """[route-directive] R3 · spawn ceiling: opus (gate-enforced). \
+You are the frontier orchestrator: plan and integrate in the main loop, \
+execute through subagents. Sweeps → model: haiku; implementation → model: \
+sonnet; independent review/planning → model: opus. Every Agent spawn must \
+carry an explicit model at or below the ceiling; absent model = inherit = \
+frontier and is denied. If a task genuinely needs more, ask the user to \
+authorize an upshift — do not retry the spawn.""",
+    "R4": """[route-directive] R4 · no spawn ceiling. High-risk lane — \
+delegate at the tier the risk earns: sweeps → haiku, implementation → \
+sonnet, review/planning → opus, frontier only where difficulty demands it. \
+Still pass an explicit model on every spawn; the ceiling is lifted, not the \
+discipline.""",
+    "R5": """[route-directive] R5 · spawn ceiling: sonnet (gate-enforced). \
+Vague prompt — clarify intent before spending tokens. No heavy delegation \
+until the work is reclassified by a concrete follow-up.""",
+}
+
+
 def route_policy_block(result: dict) -> str:
     """Build the route-specific policy block to inject into the session.
 
-    Returns empty string for R1/R2 (no extra policy beyond always-loaded
-    CLAUDE.md). Returns anti-stop + R3/R4 gates for R3/R4/R5 prompts.
+    Every route gets its dispatch directive (the per-task model-routing
+    rules that route_spawn_gate.py enforces). R3/R4/R5 additionally get the
+    anti-stop/anti-overrun patterns and the governance gates.
     """
     route = result.get("route_hint", "R1")
+    directive = ROUTE_DIRECTIVES.get(route, "")
     if route in ("R1", "R2"):
-        return ""
-    return ANTI_STOP_PATTERNS + "\n\n" + ANTI_OVERRUN_PATTERNS + "\n\n" + R3_R4_GOVERNANCE_GATES
+        return directive
+    tail = (ANTI_STOP_PATTERNS + "\n\n" + ANTI_OVERRUN_PATTERNS + "\n\n"
+            + R3_R4_GOVERNANCE_GATES)
+    return (directive + "\n\n" + tail) if directive else tail
 
 
 def _read_hook_payload() -> tuple[str, str]:

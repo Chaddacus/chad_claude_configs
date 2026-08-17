@@ -154,5 +154,81 @@ class EndToEndTest(unittest.TestCase):
             os.unlink("/tmp/claude-route-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.json")
 
 
+class TestRouteDirectives(unittest.TestCase):
+    """Pin the 2026-08-16 dispatch-directive contract.
+
+    Regression for the routing audit: route_policy_block returned "" for
+    R1/R2, so the classification routed nothing and every task executed on
+    the frontier main model. Every route must now carry its dispatch
+    directive; R3/R4/R5 keep the governance gates on top.
+    """
+
+    def test_every_route_has_a_directive(self):
+        for route in ("R1", "R2", "R3", "R4", "R5"):
+            self.assertIn(route, cp.ROUTE_DIRECTIVES)
+            self.assertIn("[route-directive]", cp.ROUTE_DIRECTIVES[route])
+
+    def test_r1_r2_inject_directive_only(self):
+        for route in ("R1", "R2"):
+            block = cp.route_policy_block({"route_hint": route})
+            self.assertIn(f"[route-directive] {route}", block)
+            self.assertIn("sonnet", block)
+            self.assertNotIn("Anti-stop patterns", block)
+
+    def test_r3_gets_directive_plus_gates(self):
+        block = cp.route_policy_block({"route_hint": "R3"})
+        self.assertTrue(block.startswith("[route-directive] R3"))
+        self.assertIn("opus", block.split("\n\n")[0])
+        self.assertIn("Anti-stop patterns", block)
+        self.assertIn("R3/R4 governed lanes", block)
+
+    def test_r4_is_uncapped_but_disciplined(self):
+        block = cp.route_policy_block({"route_hint": "R4"})
+        self.assertIn("no spawn ceiling", block.split("\n\n")[0])
+        self.assertIn("explicit model", block.split("\n\n")[0])
+        self.assertIn("Anti-stop patterns", block)
+
+    def test_gated_routes_name_gate_enforcement(self):
+        # The directive must tell the orchestrator the ceiling is enforced,
+        # not advisory — that distinction was the whole audit finding.
+        for route in ("R1", "R2", "R3", "R5"):
+            self.assertIn("gate-enforced", cp.ROUTE_DIRECTIVES[route])
+
+    def test_unknown_route_still_gets_gates(self):
+        # Defensive: an unmapped route falls back to the governed-lane block.
+        block = cp.route_policy_block({"route_hint": "R9"})
+        self.assertIn("Anti-stop patterns", block)
+
+    def test_directive_ceilings_match_the_plugin_gate(self):
+        # This machine's injected directives and the foundation plugin's
+        # enforced ceilings must never drift — that is exactly the H4
+        # two-classifiers failure mode. The gate ships in the
+        # claude-engineering-foundation plugin (SPEC §17.5); this classifier
+        # stands the plugin's classifier down (FOUNDATION_ROUTE_CLASSIFIER=
+        # external) and injects the directives itself, so it owns keeping
+        # them aligned. Skips on machines without the plugin installed.
+        import glob
+        import importlib.util
+        candidates = sorted(glob.glob(os.path.expanduser(
+            "~/.claude/plugins/cache/claude-engineering-foundation/"
+            "claude-engineering-foundation/*/hooks/scripts/"
+            "route_classifier.py")))
+        if not candidates:
+            self.skipTest("foundation plugin with routing module not installed")
+        spec = importlib.util.spec_from_file_location(
+            "foundation_route_policy", candidates[-1])
+        policy = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(policy)
+        expected = {"R1": "sonnet", "R2": "sonnet", "R3": "opus",
+                    "R4": None, "R5": "sonnet"}
+        self.assertEqual(policy.CEILINGS, expected)
+        for route, ceiling in expected.items():
+            directive = cp.ROUTE_DIRECTIVES[route]
+            if ceiling is None:
+                self.assertIn("no spawn ceiling", directive)
+            else:
+                self.assertIn(f"spawn ceiling: {ceiling}", directive)
+
+
 if __name__ == "__main__":
     unittest.main()
