@@ -154,19 +154,56 @@ class EndToEndTest(unittest.TestCase):
             os.unlink("/tmp/claude-route-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.json")
 
 
+def _load_plugin_policy():
+    """Load the foundation route policy module for drift comparison.
+
+    Candidates: the installed plugin cache (deployed truth) and the source
+    repo checkout (present on dev machines — makes this guard executable
+    BEFORE the first plugin deploy, which review flagged: a drift guard
+    that has never run guards nothing). Newest cache wins over source.
+    """
+    import glob
+    import importlib.util
+    candidates = sorted(glob.glob(os.path.expanduser(
+        "~/.claude/plugins/cache/*/claude-engineering-foundation/*/hooks/"
+        "scripts/route_classifier.py")))
+    source = os.path.expanduser(
+        "~/chad_work/claude_engineering_foundation/hooks/scripts/"
+        "route_classifier.py")
+    if not candidates and os.path.isfile(source):
+        candidates = [source]
+    if not candidates:
+        return None
+    spec = importlib.util.spec_from_file_location(
+        "foundation_route_policy_test", candidates[-1])
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
 class TestRouteDirectives(unittest.TestCase):
     """Pin the 2026-08-16 dispatch-directive contract.
 
     Regression for the routing audit: route_policy_block returned "" for
     R1/R2, so the classification routed nothing and every task executed on
     the frontier main model. Every route must now carry its dispatch
-    directive; R3/R4/R5 keep the governance gates on top.
+    directive; R3/R4/R5 keep the governance gates on top. Directives are
+    rendered from the live env (ceilings + gate mode) — static text lied
+    under overrides and shadow mode (review finding).
     """
 
-    def test_every_route_has_a_directive(self):
+    def setUp(self):
+        # Render against a known config, not whatever this machine exports.
+        for var in ("FOUNDATION_ROUTE_CEILINGS", "FOUNDATION_ROUTE_GATE_MODE"):
+            os.environ.pop(var, None)
+        os.environ["FOUNDATION_ROUTE_GATE_MODE"] = "enforce"
+        self.addCleanup(
+            lambda: os.environ.pop("FOUNDATION_ROUTE_GATE_MODE", None))
+
+    def test_every_route_renders_a_directive(self):
         for route in ("R1", "R2", "R3", "R4", "R5"):
-            self.assertIn(route, cp.ROUTE_DIRECTIVES)
-            self.assertIn("[route-directive]", cp.ROUTE_DIRECTIVES[route])
+            text = cp.render_route_directive(route)
+            self.assertIn(f"[route-directive] {route}", text)
 
     def test_r1_r2_inject_directive_only(self):
         for route in ("R1", "R2"):
@@ -185,49 +222,63 @@ class TestRouteDirectives(unittest.TestCase):
     def test_r4_is_uncapped_but_disciplined(self):
         block = cp.route_policy_block({"route_hint": "R4"})
         self.assertIn("no spawn ceiling", block.split("\n\n")[0])
-        self.assertIn("explicit model", block.split("\n\n")[0])
         self.assertIn("Anti-stop patterns", block)
 
-    def test_gated_routes_name_gate_enforcement(self):
-        # The directive must tell the orchestrator the ceiling is enforced,
-        # not advisory — that distinction was the whole audit finding.
+    def test_enforce_and_shadow_wording_track_the_env(self):
+        # "gate-enforced" printed while the gate shadows was a review
+        # finding — the wording must come from the real mode.
         for route in ("R1", "R2", "R3", "R5"):
-            self.assertIn("gate-enforced", cp.ROUTE_DIRECTIVES[route])
+            self.assertIn("gate-enforced", cp.render_route_directive(route))
+        os.environ["FOUNDATION_ROUTE_GATE_MODE"] = "shadow"
+        for route in ("R1", "R2", "R3", "R5"):
+            self.assertIn("advisory — gate in shadow mode",
+                          cp.render_route_directive(route))
+
+    def test_ceiling_override_changes_the_rendered_text(self):
+        os.environ["FOUNDATION_ROUTE_CEILINGS"] = json.dumps({"R3": "sonnet"})
+        try:
+            text = cp.render_route_directive("R3")
+        finally:
+            os.environ.pop("FOUNDATION_ROUTE_CEILINGS", None)
+        self.assertIn("spawn ceiling: sonnet", text)
+        self.assertNotIn("spawn ceiling: opus", text)
 
     def test_unknown_route_still_gets_gates(self):
-        # Defensive: an unmapped route falls back to the governed-lane block.
         block = cp.route_policy_block({"route_hint": "R9"})
         self.assertIn("Anti-stop patterns", block)
 
-    def test_directive_ceilings_match_the_plugin_gate(self):
-        # This machine's injected directives and the foundation plugin's
-        # enforced ceilings must never drift — that is exactly the H4
-        # two-classifiers failure mode. The gate ships in the
-        # claude-engineering-foundation plugin (SPEC §17.5); this classifier
-        # stands the plugin's classifier down (FOUNDATION_ROUTE_CLASSIFIER=
-        # external) and injects the directives itself, so it owns keeping
-        # them aligned. Skips on machines without the plugin installed.
-        import glob
-        import importlib.util
-        candidates = sorted(glob.glob(os.path.expanduser(
-            "~/.claude/plugins/cache/claude-engineering-foundation/"
-            "claude-engineering-foundation/*/hooks/scripts/"
-            "route_classifier.py")))
-        if not candidates:
-            self.skipTest("foundation plugin with routing module not installed")
-        spec = importlib.util.spec_from_file_location(
-            "foundation_route_policy", candidates[-1])
-        policy = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(policy)
-        expected = {"R1": "sonnet", "R2": "sonnet", "R3": "opus",
-                    "R4": None, "R5": "sonnet"}
-        self.assertEqual(policy.CEILINGS, expected)
-        for route, ceiling in expected.items():
-            directive = cp.ROUTE_DIRECTIVES[route]
-            if ceiling is None:
-                self.assertIn("no spawn ceiling", directive)
-            else:
-                self.assertIn(f"spawn ceiling: {ceiling}", directive)
+    def test_fallback_renderer_matches_the_plugin_renderer(self):
+        # The anti-drift guard (H4 class): the local fallback and the
+        # plugin's canonical renderer must produce IDENTICAL text for every
+        # route under default and overridden config. Compares rendered
+        # output, not constants — constants agreeing while text drifts was
+        # a review finding.
+        policy = _load_plugin_policy()
+        if policy is None:
+            self.skipTest("foundation routing policy not present "
+                          "(no plugin cache, no source checkout)")
+        scenarios = [
+            {},
+            {"FOUNDATION_ROUTE_GATE_MODE": "shadow"},
+            {"FOUNDATION_ROUTE_CEILINGS": json.dumps({"R3": "sonnet"})},
+            {"FOUNDATION_ROUTE_CEILINGS": json.dumps({"R2": None}),
+             "FOUNDATION_ROUTE_GATE_MODE": "enforce"},
+        ]
+        for scenario in scenarios:
+            saved = {k: os.environ.get(k) for k in scenario}
+            os.environ.update(scenario)
+            try:
+                for route in ("R1", "R2", "R3", "R4", "R5"):
+                    self.assertEqual(
+                        cp._render_directive_fallback(route),
+                        policy.render_directive(route),
+                        f"fallback/plugin drift on {route} under {scenario}")
+            finally:
+                for k, v in saved.items():
+                    if v is None:
+                        os.environ.pop(k, None)
+                    else:
+                        os.environ[k] = v
 
 
 if __name__ == "__main__":

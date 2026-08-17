@@ -174,52 +174,121 @@ def product_trigger_block(prompt: str) -> str:
 # enforced routing surface is subagent spawn time. Topology: the frontier main
 # model is the ORCHESTRATOR — it classifies, dispatches, integrates, and
 # renders verdicts; bulk execution runs on tiered subagents. These directives
-# state each route's dispatch rules; bin/route_spawn_gate.py (PreToolUse on
-# Agent|Task) enforces the ceilings — over-ceiling, missing-model, and fork
-# spawns on gated routes are denied, not advised.
+# state each route's dispatch rules; the claude-engineering-foundation
+# plugin's route_spawn_gate.py (PreToolUse on Agent, SPEC §17.5) enforces the
+# ceilings. This machine stands the plugin's classifier down
+# (FOUNDATION_ROUTE_CLASSIFIER=external in settings env), which per SPEC
+# §17.5 transfers BOTH obligations here: writing the route file and
+# injecting the directives.
+#
+# The directive text is RENDERED, never static: the plugin's policy module
+# is imported from the installed plugin cache when present (single source —
+# vendored policy copies are the recorded H4 drift class), with a minimal
+# local fallback for boxes where the plugin is absent. Either path renders
+# the ceiling and enforcement wording from the live env
+# (FOUNDATION_ROUTE_CEILINGS / FOUNDATION_ROUTE_GATE_MODE), so the injected
+# text cannot disagree with what the gate does.
 #
 # Kept deliberately short for R1/R2: these inject on EVERY prompt, and the
 # R1/R2 blocks were moved out of CLAUDE.md in April precisely to save tokens.
 # ---------------------------------------------------------------------------
 
-ROUTE_DIRECTIVES = {
-    "R1": """[route-directive] R1 · spawn ceiling: sonnet (gate-enforced). \
-Conversational/factual turn — answer directly from the main loop; no \
-subagents unless a lookup genuinely requires one (then pass an explicit \
-model: haiku or sonnet).""",
-    "R2": """[route-directive] R2 · spawn ceiling: sonnet (gate-enforced). \
-Small-scope work — the frontier main loop orchestrates and may edit small \
-things directly, but delegates anything heavy: file sweeps → model: haiku, \
-implementation slices → model: sonnet. Every Agent spawn must carry an \
-explicit model at or below the ceiling; absent model = inherit = frontier \
-and is denied.""",
-    "R3": """[route-directive] R3 · spawn ceiling: opus (gate-enforced). \
-You are the frontier orchestrator: plan and integrate in the main loop, \
-execute through subagents. Sweeps → model: haiku; implementation → model: \
-sonnet; independent review/planning → model: opus. Every Agent spawn must \
-carry an explicit model at or below the ceiling; absent model = inherit = \
-frontier and is denied. If a task genuinely needs more, ask the user to \
-authorize an upshift — do not retry the spawn.""",
-    "R4": """[route-directive] R4 · no spawn ceiling. High-risk lane — \
-delegate at the tier the risk earns: sweeps → haiku, implementation → \
-sonnet, review/planning → opus, frontier only where difficulty demands it. \
-Still pass an explicit model on every spawn; the ceiling is lifted, not the \
+_FALLBACK_CEILINGS = {"R1": "sonnet", "R2": "sonnet", "R3": "opus",
+                      "R4": None, "R5": "sonnet"}
+
+_FALLBACK_DIRECTIVE_BODIES = {
+    "R1": """Conversational/factual turn — answer directly from the main \
+loop; delegate only a genuine lookup, at or below the ceiling.""",
+    "R2": """Small-scope work — orchestrate from the main loop; delegate \
+sweeps to the cheapest tier and implementation slices at or below the \
+ceiling. Spawns resolve their model from the explicit model param or the \
+agent definition's pin; agents with a model pin pass at their pinned tier. \
+Unpinned spawns without a model inherit the frontier main model and are \
+gated.""",
+    "R3": """You are the frontier orchestrator: plan and integrate in the \
+main loop, execute through subagents — sweeps at the cheapest tier, \
+implementation mid-tier, independent review/planning at the ceiling. \
+Pinned agents pass at their pinned tier. If a task genuinely needs more \
+than the ceiling, ask the user to authorize an upshift — do not retry the \
+spawn.""",
+    "R4": """High-risk lane — delegate at the tier the risk earns; frontier \
+only where difficulty demands it. The ceiling is lifted, not the \
 discipline.""",
-    "R5": """[route-directive] R5 · spawn ceiling: sonnet (gate-enforced). \
-Vague prompt — clarify intent before spending tokens. No heavy delegation \
-until the work is reclassified by a concrete follow-up.""",
+    "R5": """Vague prompt — clarify intent before spending tokens. No heavy \
+delegation until the work is reclassified by a concrete follow-up.""",
 }
+
+
+def _plugin_route_policy():
+    """Import the foundation plugin's route policy module (single source of
+    directive rendering), newest installed version. None when absent."""
+    import glob
+    import importlib.util
+    candidates = sorted(glob.glob(os.path.expanduser(
+        "~/.claude/plugins/cache/*/claude-engineering-foundation/*/hooks/"
+        "scripts/route_classifier.py")))
+    if not candidates:
+        return None
+    try:
+        spec = importlib.util.spec_from_file_location(
+            "foundation_route_policy", candidates[-1])
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod if hasattr(mod, "render_directive") else None
+    except Exception:
+        return None  # a broken plugin install must not break classification
+
+
+def _render_directive_fallback(route: str) -> str:
+    """Minimal mirror of the plugin's render_directive for plugin-less
+    boxes. Same env contract; kept in lockstep by the anti-drift test."""
+    body = _FALLBACK_DIRECTIVE_BODIES.get(route)
+    if not body:
+        return ""
+    ceilings = dict(_FALLBACK_CEILINGS)
+    raw = os.environ.get("FOUNDATION_ROUTE_CEILINGS", "")
+    if raw:
+        try:
+            override = json.loads(raw)
+            if isinstance(override, dict):
+                ceilings.update({str(k): v for k, v in override.items()})
+        except (json.JSONDecodeError, ValueError):
+            pass
+    ceiling = ceilings.get(route)
+    mode = os.environ.get("FOUNDATION_ROUTE_GATE_MODE", "shadow").lower()
+    if ceiling is None:
+        header = f"[route-directive] {route} · no spawn ceiling."
+    elif mode == "enforce":
+        header = (f"[route-directive] {route} · spawn ceiling: {ceiling} "
+                  "(gate-enforced).")
+    else:
+        header = (f"[route-directive] {route} · spawn ceiling: {ceiling} "
+                  "(advisory — gate in shadow mode).")
+    return header + " " + body
+
+
+def render_route_directive(route: str) -> str:
+    """Render the dispatch directive: plugin policy module when installed,
+    local fallback otherwise."""
+    plugin = _plugin_route_policy()
+    if plugin is not None:
+        try:
+            return plugin.render_directive(route)
+        except Exception:
+            pass
+    return _render_directive_fallback(route)
 
 
 def route_policy_block(result: dict) -> str:
     """Build the route-specific policy block to inject into the session.
 
     Every route gets its dispatch directive (the per-task model-routing
-    rules that route_spawn_gate.py enforces). R3/R4/R5 additionally get the
-    anti-stop/anti-overrun patterns and the governance gates.
+    rules the foundation plugin's route_spawn_gate.py enforces). R3/R4/R5
+    additionally get the anti-stop/anti-overrun patterns and the governance
+    gates.
     """
     route = result.get("route_hint", "R1")
-    directive = ROUTE_DIRECTIVES.get(route, "")
+    directive = render_route_directive(route)
     if route in ("R1", "R2"):
         return directive
     tail = (ANTI_STOP_PATTERNS + "\n\n" + ANTI_OVERRUN_PATTERNS + "\n\n"
@@ -348,10 +417,16 @@ def main():
 
     # Write route to session-scoped temp file for downstream hook profile
     # gating (session_id resolved from the hook payload, env as fallback).
+    # Atomic temp-and-rename: this file has concurrent readers (stop_gate,
+    # stop_reason_telemetry, hook_profile, the plugin's route_spawn_gate)
+    # and — misconfigured — a concurrent writer (the foundation plugin's
+    # classifier before its standdown env lands); a torn read must be
+    # impossible even then.
     route_file = f"/tmp/claude-route-{session_id}.json"
     try:
-        with open(route_file, "w") as f:
+        with open(route_file + ".tmp", "w") as f:
             json.dump(result, f)
+        os.replace(route_file + ".tmp", route_file)
     except OSError:
         pass
 
