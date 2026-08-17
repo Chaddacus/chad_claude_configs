@@ -221,17 +221,21 @@ delegation until the work is reclassified by a concrete follow-up.""",
 
 def _plugin_route_policy():
     """Import the foundation plugin's route policy module (single source of
-    directive rendering), newest installed version. None when absent."""
+    directive rendering), most-recently-installed version. Selection is by
+    mtime, NEVER lexicographic — sorted() puts "0.10.0" before "0.9.0"
+    (review finding A: string order silently loads a stale policy once two
+    versions coexist in the cache). None when absent."""
     import glob
     import importlib.util
-    candidates = sorted(glob.glob(os.path.expanduser(
+    candidates = glob.glob(os.path.expanduser(
         "~/.claude/plugins/cache/*/claude-engineering-foundation/*/hooks/"
-        "scripts/route_classifier.py")))
+        "scripts/route_classifier.py"))
     if not candidates:
         return None
     try:
+        newest = max(candidates, key=lambda p: os.path.getmtime(p))
         spec = importlib.util.spec_from_file_location(
-            "foundation_route_policy", candidates[-1])
+            "foundation_route_policy", newest)
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
         return mod if hasattr(mod, "render_directive") else None
@@ -424,9 +428,11 @@ def main():
     # impossible even then.
     route_file = f"/tmp/claude-route-{session_id}.json"
     try:
-        with open(route_file + ".tmp", "w") as f:
+        import tempfile
+        fd, tmp_path = tempfile.mkstemp(dir="/tmp", prefix=".claude-route-")
+        with os.fdopen(fd, "w") as f:
             json.dump(result, f)
-        os.replace(route_file + ".tmp", route_file)
+        os.replace(tmp_path, route_file)
     except OSError:
         pass
 

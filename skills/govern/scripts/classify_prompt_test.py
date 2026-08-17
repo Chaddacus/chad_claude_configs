@@ -164,9 +164,9 @@ def _load_plugin_policy():
     """
     import glob
     import importlib.util
-    candidates = sorted(glob.glob(os.path.expanduser(
+    candidates = glob.glob(os.path.expanduser(
         "~/.claude/plugins/cache/*/claude-engineering-foundation/*/hooks/"
-        "scripts/route_classifier.py")))
+        "scripts/route_classifier.py"))
     source = os.path.expanduser(
         "~/chad_work/claude_engineering_foundation/hooks/scripts/"
         "route_classifier.py")
@@ -174,8 +174,10 @@ def _load_plugin_policy():
         candidates = [source]
     if not candidates:
         return None
+    # mtime, never lexicographic — "0.10.0" sorts before "0.9.0" (finding A).
+    newest = max(candidates, key=lambda p: os.path.getmtime(p))
     spec = importlib.util.spec_from_file_location(
-        "foundation_route_policy_test", candidates[-1])
+        "foundation_route_policy_test", newest)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
