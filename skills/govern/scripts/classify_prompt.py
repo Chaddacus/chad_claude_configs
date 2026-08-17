@@ -164,16 +164,140 @@ def product_trigger_block(prompt: str) -> str:
     return ""
 
 
+# ---------------------------------------------------------------------------
+# Per-route dispatch directives (2026-08-16).
+#
+# The 2026-08-16 audit found the classifier routed nothing: route_hint was
+# logged as "bandit training data" no consumer read, while every task executed
+# on the frontier main model and unpinned subagents inherited it. The product
+# offers no per-turn main-model switch (verified, Claude Code 2.1.233), so the
+# enforced routing surface is subagent spawn time. Topology: the frontier main
+# model is the ORCHESTRATOR — it classifies, dispatches, integrates, and
+# renders verdicts; bulk execution runs on tiered subagents. These directives
+# state each route's dispatch rules; the claude-engineering-foundation
+# plugin's route_spawn_gate.py (PreToolUse on Agent, SPEC §17.5) enforces the
+# ceilings. This machine stands the plugin's classifier down
+# (FOUNDATION_ROUTE_CLASSIFIER=external in settings env), which per SPEC
+# §17.5 transfers BOTH obligations here: writing the route file and
+# injecting the directives.
+#
+# The directive text is RENDERED, never static: the plugin's policy module
+# is imported from the installed plugin cache when present (single source —
+# vendored policy copies are the recorded H4 drift class), with a minimal
+# local fallback for boxes where the plugin is absent. Either path renders
+# the ceiling and enforcement wording from the live env
+# (FOUNDATION_ROUTE_CEILINGS / FOUNDATION_ROUTE_GATE_MODE), so the injected
+# text cannot disagree with what the gate does.
+#
+# Kept deliberately short for R1/R2: these inject on EVERY prompt, and the
+# R1/R2 blocks were moved out of CLAUDE.md in April precisely to save tokens.
+# ---------------------------------------------------------------------------
+
+_FALLBACK_CEILINGS = {"R1": "sonnet", "R2": "sonnet", "R3": "opus",
+                      "R4": None, "R5": "sonnet"}
+
+_FALLBACK_DIRECTIVE_BODIES = {
+    "R1": """Conversational/factual turn — answer directly from the main \
+loop; delegate only a genuine lookup, at or below the ceiling.""",
+    "R2": """Small-scope work — orchestrate from the main loop; delegate \
+sweeps to the cheapest tier and implementation slices at or below the \
+ceiling. Spawns resolve their model from the explicit model param or the \
+agent definition's pin; agents with a model pin pass at their pinned tier. \
+Unpinned spawns without a model inherit the frontier main model and are \
+gated.""",
+    "R3": """You are the frontier orchestrator: plan and integrate in the \
+main loop, execute through subagents — sweeps at the cheapest tier, \
+implementation mid-tier, independent review/planning at the ceiling. \
+Pinned agents pass at their pinned tier. If a task genuinely needs more \
+than the ceiling, ask the user to authorize an upshift — do not retry the \
+spawn.""",
+    "R4": """High-risk lane — delegate at the tier the risk earns; frontier \
+only where difficulty demands it. The ceiling is lifted, not the \
+discipline.""",
+    "R5": """Vague prompt — clarify intent before spending tokens. No heavy \
+delegation until the work is reclassified by a concrete follow-up.""",
+}
+
+
+def _plugin_route_policy():
+    """Import the foundation plugin's route policy module (single source of
+    directive rendering), most-recently-installed version. Selection is by
+    mtime, NEVER lexicographic — sorted() puts "0.10.0" before "0.9.0"
+    (review finding A: string order silently loads a stale policy once two
+    versions coexist in the cache). None when absent."""
+    import glob
+    import importlib.util
+    candidates = glob.glob(os.path.expanduser(
+        "~/.claude/plugins/cache/*/claude-engineering-foundation/*/hooks/"
+        "scripts/route_classifier.py"))
+    if not candidates:
+        return None
+    try:
+        newest = max(candidates, key=lambda p: os.path.getmtime(p))
+        spec = importlib.util.spec_from_file_location(
+            "foundation_route_policy", newest)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod if hasattr(mod, "render_directive") else None
+    except Exception:
+        return None  # a broken plugin install must not break classification
+
+
+def _render_directive_fallback(route: str) -> str:
+    """Minimal mirror of the plugin's render_directive for plugin-less
+    boxes. Same env contract; kept in lockstep by the anti-drift test."""
+    body = _FALLBACK_DIRECTIVE_BODIES.get(route)
+    if not body:
+        return ""
+    ceilings = dict(_FALLBACK_CEILINGS)
+    raw = os.environ.get("FOUNDATION_ROUTE_CEILINGS", "")
+    if raw:
+        try:
+            override = json.loads(raw)
+            if isinstance(override, dict):
+                ceilings.update({str(k): v for k, v in override.items()})
+        except (json.JSONDecodeError, ValueError):
+            pass
+    ceiling = ceilings.get(route)
+    mode = os.environ.get("FOUNDATION_ROUTE_GATE_MODE", "shadow").lower()
+    if ceiling is None:
+        header = f"[route-directive] {route} · no spawn ceiling."
+    elif mode == "enforce":
+        header = (f"[route-directive] {route} · spawn ceiling: {ceiling} "
+                  "(gate-enforced).")
+    else:
+        header = (f"[route-directive] {route} · spawn ceiling: {ceiling} "
+                  "(advisory — gate in shadow mode).")
+    return header + " " + body
+
+
+def render_route_directive(route: str) -> str:
+    """Render the dispatch directive: plugin policy module when installed,
+    local fallback otherwise."""
+    plugin = _plugin_route_policy()
+    if plugin is not None:
+        try:
+            return plugin.render_directive(route)
+        except Exception:
+            pass
+    return _render_directive_fallback(route)
+
+
 def route_policy_block(result: dict) -> str:
     """Build the route-specific policy block to inject into the session.
 
-    Returns empty string for R1/R2 (no extra policy beyond always-loaded
-    CLAUDE.md). Returns anti-stop + R3/R4 gates for R3/R4/R5 prompts.
+    Every route gets its dispatch directive (the per-task model-routing
+    rules the foundation plugin's route_spawn_gate.py enforces). R3/R4/R5
+    additionally get the anti-stop/anti-overrun patterns and the governance
+    gates.
     """
     route = result.get("route_hint", "R1")
+    directive = render_route_directive(route)
     if route in ("R1", "R2"):
-        return ""
-    return ANTI_STOP_PATTERNS + "\n\n" + ANTI_OVERRUN_PATTERNS + "\n\n" + R3_R4_GOVERNANCE_GATES
+        return directive
+    tail = (ANTI_STOP_PATTERNS + "\n\n" + ANTI_OVERRUN_PATTERNS + "\n\n"
+            + R3_R4_GOVERNANCE_GATES)
+    return (directive + "\n\n" + tail) if directive else tail
 
 
 def _read_hook_payload() -> tuple[str, str]:
@@ -297,10 +421,18 @@ def main():
 
     # Write route to session-scoped temp file for downstream hook profile
     # gating (session_id resolved from the hook payload, env as fallback).
+    # Atomic temp-and-rename: this file has concurrent readers (stop_gate,
+    # stop_reason_telemetry, hook_profile, the plugin's route_spawn_gate)
+    # and — misconfigured — a concurrent writer (the foundation plugin's
+    # classifier before its standdown env lands); a torn read must be
+    # impossible even then.
     route_file = f"/tmp/claude-route-{session_id}.json"
     try:
-        with open(route_file, "w") as f:
+        import tempfile
+        fd, tmp_path = tempfile.mkstemp(dir="/tmp", prefix=".claude-route-")
+        with os.fdopen(fd, "w") as f:
             json.dump(result, f)
+        os.replace(tmp_path, route_file)
     except OSError:
         pass
 

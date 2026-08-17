@@ -154,5 +154,134 @@ class EndToEndTest(unittest.TestCase):
             os.unlink("/tmp/claude-route-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.json")
 
 
+def _load_plugin_policy():
+    """Load the foundation route policy module for drift comparison.
+
+    Candidates: the installed plugin cache (deployed truth) and the source
+    repo checkout (present on dev machines — makes this guard executable
+    BEFORE the first plugin deploy, which review flagged: a drift guard
+    that has never run guards nothing). Newest cache wins over source.
+    """
+    import glob
+    import importlib.util
+    candidates = glob.glob(os.path.expanduser(
+        "~/.claude/plugins/cache/*/claude-engineering-foundation/*/hooks/"
+        "scripts/route_classifier.py"))
+    source = os.path.expanduser(
+        "~/chad_work/claude_engineering_foundation/hooks/scripts/"
+        "route_classifier.py")
+    if not candidates and os.path.isfile(source):
+        candidates = [source]
+    if not candidates:
+        return None
+    # mtime, never lexicographic — "0.10.0" sorts before "0.9.0" (finding A).
+    newest = max(candidates, key=lambda p: os.path.getmtime(p))
+    spec = importlib.util.spec_from_file_location(
+        "foundation_route_policy_test", newest)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+class TestRouteDirectives(unittest.TestCase):
+    """Pin the 2026-08-16 dispatch-directive contract.
+
+    Regression for the routing audit: route_policy_block returned "" for
+    R1/R2, so the classification routed nothing and every task executed on
+    the frontier main model. Every route must now carry its dispatch
+    directive; R3/R4/R5 keep the governance gates on top. Directives are
+    rendered from the live env (ceilings + gate mode) — static text lied
+    under overrides and shadow mode (review finding).
+    """
+
+    def setUp(self):
+        # Render against a known config, not whatever this machine exports.
+        for var in ("FOUNDATION_ROUTE_CEILINGS", "FOUNDATION_ROUTE_GATE_MODE"):
+            os.environ.pop(var, None)
+        os.environ["FOUNDATION_ROUTE_GATE_MODE"] = "enforce"
+        self.addCleanup(
+            lambda: os.environ.pop("FOUNDATION_ROUTE_GATE_MODE", None))
+
+    def test_every_route_renders_a_directive(self):
+        for route in ("R1", "R2", "R3", "R4", "R5"):
+            text = cp.render_route_directive(route)
+            self.assertIn(f"[route-directive] {route}", text)
+
+    def test_r1_r2_inject_directive_only(self):
+        for route in ("R1", "R2"):
+            block = cp.route_policy_block({"route_hint": route})
+            self.assertIn(f"[route-directive] {route}", block)
+            self.assertIn("sonnet", block)
+            self.assertNotIn("Anti-stop patterns", block)
+
+    def test_r3_gets_directive_plus_gates(self):
+        block = cp.route_policy_block({"route_hint": "R3"})
+        self.assertTrue(block.startswith("[route-directive] R3"))
+        self.assertIn("opus", block.split("\n\n")[0])
+        self.assertIn("Anti-stop patterns", block)
+        self.assertIn("R3/R4 governed lanes", block)
+
+    def test_r4_is_uncapped_but_disciplined(self):
+        block = cp.route_policy_block({"route_hint": "R4"})
+        self.assertIn("no spawn ceiling", block.split("\n\n")[0])
+        self.assertIn("Anti-stop patterns", block)
+
+    def test_enforce_and_shadow_wording_track_the_env(self):
+        # "gate-enforced" printed while the gate shadows was a review
+        # finding — the wording must come from the real mode.
+        for route in ("R1", "R2", "R3", "R5"):
+            self.assertIn("gate-enforced", cp.render_route_directive(route))
+        os.environ["FOUNDATION_ROUTE_GATE_MODE"] = "shadow"
+        for route in ("R1", "R2", "R3", "R5"):
+            self.assertIn("advisory — gate in shadow mode",
+                          cp.render_route_directive(route))
+
+    def test_ceiling_override_changes_the_rendered_text(self):
+        os.environ["FOUNDATION_ROUTE_CEILINGS"] = json.dumps({"R3": "sonnet"})
+        try:
+            text = cp.render_route_directive("R3")
+        finally:
+            os.environ.pop("FOUNDATION_ROUTE_CEILINGS", None)
+        self.assertIn("spawn ceiling: sonnet", text)
+        self.assertNotIn("spawn ceiling: opus", text)
+
+    def test_unknown_route_still_gets_gates(self):
+        block = cp.route_policy_block({"route_hint": "R9"})
+        self.assertIn("Anti-stop patterns", block)
+
+    def test_fallback_renderer_matches_the_plugin_renderer(self):
+        # The anti-drift guard (H4 class): the local fallback and the
+        # plugin's canonical renderer must produce IDENTICAL text for every
+        # route under default and overridden config. Compares rendered
+        # output, not constants — constants agreeing while text drifts was
+        # a review finding.
+        policy = _load_plugin_policy()
+        if policy is None:
+            self.skipTest("foundation routing policy not present "
+                          "(no plugin cache, no source checkout)")
+        scenarios = [
+            {},
+            {"FOUNDATION_ROUTE_GATE_MODE": "shadow"},
+            {"FOUNDATION_ROUTE_CEILINGS": json.dumps({"R3": "sonnet"})},
+            {"FOUNDATION_ROUTE_CEILINGS": json.dumps({"R2": None}),
+             "FOUNDATION_ROUTE_GATE_MODE": "enforce"},
+        ]
+        for scenario in scenarios:
+            saved = {k: os.environ.get(k) for k in scenario}
+            os.environ.update(scenario)
+            try:
+                for route in ("R1", "R2", "R3", "R4", "R5"):
+                    self.assertEqual(
+                        cp._render_directive_fallback(route),
+                        policy.render_directive(route),
+                        f"fallback/plugin drift on {route} under {scenario}")
+            finally:
+                for k, v in saved.items():
+                    if v is None:
+                        os.environ.pop(k, None)
+                    else:
+                        os.environ[k] = v
+
+
 if __name__ == "__main__":
     unittest.main()
