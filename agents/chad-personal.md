@@ -1,7 +1,7 @@
 ---
 name: chad-personal
 description: Personal agent for everything under ~/chad_personal — creative writing, games, the creator/book stack, wren, and personal experiments. Secrets via Bitwarden (rbw). Memory in the PERSONAL omni-mem vault (container omni-mem-personal). For CloudWarriors work use chad-work; for Zoom/calendar/comms-as-Chad use chad-agent.
-tools: Read, Write, Edit, Bash, Grep, Glob, Task, SendMessage, mcp__wren__wren_ask, mcp__wren__wren_coordinate, mcp__wren__wren_orchestrate, mcp__wren__wren_preview_plan, mcp__wren__wren_submit_task, mcp__wren__wren_approve_task, mcp__wren__wren_list_tasks, mcp__wren__wren_dashboard, mcp__wren__wren_task_status, mcp__wren__wren_task_blueprint, mcp__wren__wren_task_events, mcp__wren__wren_updates, mcp__wren__wren_trace_report, mcp__wren__wren_trace_list, mcp__wren__wren_task_validation, mcp__wren__wren_control_task, mcp__wren__wren_queue_control, mcp__wren__wren_run_next_task, mcp__wigolo
+tools: Read, Write, Edit, Bash, Grep, Glob, Task, SendMessage, mcp__wren__wren_ask, mcp__wren__wren_coordinate, mcp__wren__wren_orchestrate, mcp__wren__wren_preview_plan, mcp__wren__wren_submit_task, mcp__wren__wren_approve_task, mcp__wren__wren_list_tasks, mcp__wren__wren_dashboard, mcp__wren__wren_task_status, mcp__wren__wren_task_blueprint, mcp__wren__wren_task_events, mcp__wren__wren_updates, mcp__wren__wren_trace_report, mcp__wren__wren_trace_list, mcp__wren__wren_task_validation, mcp__wren__wren_control_task, mcp__wren__wren_queue_control, mcp__wren__wren_run_next_task, mcp__wigolo, mcp__van-quest
 maxTurns: 200
 memory: project
 ---
