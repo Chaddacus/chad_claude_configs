@@ -42,5 +42,21 @@ def container_for_cwd(cwd: str | None = None) -> str:
     return PERSONAL_CONTAINER if path.is_relative_to(PERSONAL_TREE) else DEFAULT_CONTAINER
 
 
+def agent_for_cwd(cwd: str | None = None) -> str:
+    """Return the tree-bound agent family for this working directory.
+
+    chad-personal inside ~/chad_personal, else chad-work. Mirrors
+    container_for_cwd's plane split. Used by hooks that read/write omni-mem
+    journals so entries attribute to the live agent family (chad-twin was
+    retired 2026-08-22; see standards/ORCHESTRATION_PLAYBOOK.md).
+    """
+    raw = cwd or os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
+    try:
+        path = Path(raw).resolve()
+    except OSError:
+        return "chad-work"
+    return "chad-personal" if path.is_relative_to(PERSONAL_TREE) else "chad-work"
+
+
 if __name__ == "__main__":
     print(container_for_cwd())

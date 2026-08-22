@@ -36,7 +36,7 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-from omni_mem_route import container_for_cwd
+from omni_mem_route import agent_for_cwd, container_for_cwd
 
 SUMMARY_DIR = Path.home() / ".claude" / "state" / "session_summaries"
 
@@ -246,7 +246,7 @@ def _omni_mem_writes_since(
         "--workspaceId",
         workspace,
         "--agentName",
-        "chad-twin",
+        agent_for_cwd(cwd),
         "--limit",
         "30",
     )

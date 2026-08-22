@@ -124,7 +124,8 @@ Lane rules with no direct Standard equivalent:
 - Prefer vertical slices over horizontal database-then-API-then-UI phases unless a dependency forces the horizontal step.
 - Single lane by default. Parallel work requires a real dependency graph and disjoint write sets (Execution Orchestration, dependency-aware parallelism).
 - Choose the highest useful layer — patch, abstraction, or operating surface — and record which existing primitives you considered and why reuse was rejected.
-- A plan that exceeds the simplicity budget, or adds a new runtime surface without proof it is needed, fails closed (Engineering Constitution: smallest correct change)."""
+- A plan that exceeds the simplicity budget, or adds a new runtime surface without proof it is needed, fails closed (Engineering Constitution: smallest correct change).
+- Supervisor mechanics — dispatch envelope, stage pipeline, 2-attempt cap + replan sentinel: `~/.claude/standards/ORCHESTRATION_PLAYBOOK.md`."""
 
 
 # Product-trigger keywords for product-orchestrator nudge. Mirrored in

@@ -4,7 +4,7 @@
 Reads the session transcript provided by Claude Code on stdin, counts Task
 tool_use blocks whose corresponding tool_result is_error=True, and — when
 that count is >= the threshold — queries omni-mem for replan-* journal
-entries authored by chad-twin since the session started. If at least one
+entries authored by the tree agent (agent_for_cwd) since the session started. If at least one
 worker dispatch failed and zero replan entries exist for the window, the
 hook surfaces a *non-blocking* advisory via stopReason.
 
@@ -19,13 +19,13 @@ This is intentionally advisory, not blocking, because:
      on retry). Blocking on these would train the user to ignore the hook.
   3. Full enforcement of CR-INV-009 ("approach pivots must be recorded as
      structured replan-* journal entries") requires instrumented dispatch —
-     the chad-twin supervisor would emit a "pivot decision" event when its
+     the supervisor would emit a "pivot decision" event when its
      2-attempt rule fires, and the hook would assert a matching journal
-     entry. That instrumentation does not exist in current chad-twin (it is
+     entry. That instrumentation does not exist in the current playbook (it is
      prompt-driven). This hook is the convention-tier promotion: advisory.
 
 Promotion path to full enforcement (future, not this slice):
-  - chad-twin supervisor protocol emits a structured "replan_pending" event
+  - the supervisor protocol emits a structured "replan_pending" event
     when 2-attempt rule fires.
   - This hook reads those events instead of the transcript heuristic.
   - When a "replan_pending" event has no matching replan-* journal entry by
@@ -48,7 +48,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from omni_mem_route import container_for_cwd
+from omni_mem_route import agent_for_cwd, container_for_cwd
 
 FAILED_DISPATCH_THRESHOLD = 2  # >= this many failed Task results triggers the check
 OMNI_MEM_QUERY_LIMIT = 50      # how many journal entries to fetch
@@ -56,10 +56,10 @@ OMNI_MEM_QUERY_TIMEOUT = 5     # seconds; query is best-effort
 HOOK_PROFILE_ID = "replan_evidence_check"
 
 # Sentinel-file enforcement (CR-INV-009 promotion to enforced).
-# chad-twin agent protocol writes
+# The supervisor protocol writes
 # /tmp/claude-replan-pending-<session>.json when its 2-attempt rule fires
 # (see ~/.claude/standards/REPLAN_DECISION_PROTOCOL.md and
-# ~/.claude/agents/chad-twin.md). When --strict is passed and the sentinel
+# ~/.claude/standards/ORCHESTRATION_PLAYBOOK.md). When --strict is passed and the sentinel
 # exists with no matching replan-* journal entry, the hook exits non-zero
 # to block Stop until the user records the pivot.
 SENTINEL_PATH_TEMPLATE = "/tmp/claude-replan-pending-{session}.json"
@@ -178,7 +178,7 @@ def _replan_journal_count(workspace_id: str, since_ts: float) -> int | None:
                 # Vault routed by cwd: ~/chad_personal -> omni-mem-personal, else omni-mem.
                 "docker", "exec", container_for_cwd(), "omni-mem", "journal_read",
                 "--workspaceId", workspace_id,
-                "--agentName", "chad-twin",
+                "--agentName", agent_for_cwd(),
                 "--limit", str(OMNI_MEM_QUERY_LIMIT),
             ],
             capture_output=True,
@@ -219,7 +219,7 @@ def _emit_advisory(failed: int, total: int, replan_count: int | None) -> None:
         )
     else:
         parts.append(
-            f"Found {replan_count} replan-* journal entries for chad-twin in the session window."
+            f"Found {replan_count} replan-* journal entries for the tree agent in the session window."
         )
     parts.append(
         "If any of those failures triggered an approach pivot, the pivot should be "
@@ -241,13 +241,13 @@ def _sentinel_exists(session_id: str) -> bool:
 def _emit_blocking(failed: int, total: int, replan_count: int | None, sentinel: str) -> None:
     """Emit a blocking stopReason when sentinel exists with no journal entry."""
     msg = (
-        f"🛑 CR-INV-009 BLOCK: chad-twin sentinel found at {sentinel} indicating "
+        f"🛑 CR-INV-009 BLOCK: replan sentinel found at {sentinel} indicating "
         "an approach pivot fired during this session, but no matching replan-* "
         f"journal entry exists in omni-mem (found {replan_count}). "
         "Per ~/.claude/standards/REPLAN_DECISION_PROTOCOL.md, structured pivot "
         "evidence is required before Stop. Record the pivot with:\n"
         "  docker exec omni-mem omni-mem journal_write \\\n"
-        "    --workspaceId <ws> --agentName chad-twin \\\n"
+        "    --workspaceId <ws> --agentName <tree agent, e.g. chad-work> \\\n"
         "    --topic replan-<slug> --content '<trigger/candidates/threshold/selected/rejected/rationale>'\n"
         "Then remove the sentinel file and re-Stop."
     )
@@ -276,7 +276,7 @@ def main() -> int:
 
     workspace_id = os.environ.get("CLAUDE_WORKSPACE_ID") or os.path.basename(os.getcwd()) or "chadsimon"
 
-    # Path 1 — strict mode + sentinel check (chad-twin instrumented pivot)
+    # Path 1 — strict mode + sentinel check (supervisor-instrumented pivot)
     sentinel = _sentinel_path(session_id)
     if _sentinel_exists(session_id):
         since = _session_start_ts(transcript_path)
