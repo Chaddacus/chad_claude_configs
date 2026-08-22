@@ -101,6 +101,7 @@
     ],
     "defaultMode": "auto"
   },
+  "model": "claude-opus-4-6[1m]",
   "fallbackModel": [
     "sonnet"
   ],
@@ -485,7 +486,8 @@
     "insecure-defaults@trailofbits": true,
     "sharp-edges@trailofbits": true,
     "frontend-design@claude-plugins-official": true,
-    "claude-engineering-foundation@claude-engineering-foundation": true
+    "claude-engineering-foundation@claude-engineering-foundation": true,
+    "clangd-lsp@claude-plugins-official": true
   },
   "extraKnownMarketplaces": {
     "claude-engineering-foundation": {
@@ -504,9 +506,38 @@
   "tui": "fullscreen",
   "skipDangerousModePermissionPrompt": true,
   "autoCompactEnabled": true,
+  "switchModelsOnFlag": false,
   "remoteControlAtStartup": true,
   "inputNeededNotifEnabled": true,
   "agentPushNotifEnabled": true,
   "skipAutoPermissionPrompt": true,
+  "autoMode": {
+    "environment": [
+      "### Org-wide",
+      "**Organization**: None configured",
+      "**Cloud provider(s)**: None configured",
+      "**Repository visibility**: Not queryable here — no git remotes configured in this repo (repo path /Users/chadsimon has 0 tracked files); assume private until confirmed",
+      "**Internal sharing / snippet hosting**: None configured — treat public paste/gist services as outside the trust boundary",
+      "**Secrets management**: 1Password (op, service-account token) for the CloudWarriors work plane; Bitwarden (rbw) for the personal plane — per ~/.claude/CLAUDE.md and agent docs, unverified provenance for this specific (empty) repo",
+      "**Default / protected branches**: Not queryable here (org/repo not derivable from origin remote — no remotes configured)",
+      "**CI/CD deploy targets**: None configured",
+      "**Network posture**: None configured",
+      "**Source control**: The trusted repo (this checkout, /Users/chadsimon) and its remote(s) only — no remotes are currently configured",
+      "**Trusted internal domains**: None configured",
+      "**Trusted cloud buckets**: None configured",
+      "**Key internal services**: None configured",
+      "**Internal package registry**: None configured",
+      "**Sensitive data locations & audiences**: any file or store holding personal data, confidential business data, credentials, regulated data, or similarly sensitive material; preserve exact handles when known and share only with audiences cleared at the [named+specifics] bar",
+      "**Data retention / declassification**: None configured",
+      "**Sensitive remote targets**: any namespace, host, or container whose name carries `prod` or `production` as a whole word or name segment (hyphen/underscore/dot-delimited — e.g. matches `prod-db`, not `producer`)",
+      "**Protected deployment namespaces / environments**: None configured — fall back to the Sensitive remote targets heuristic",
+      "**Protected IaC scopes**: IAM, RBAC, networking, quota, and node-pool resources; anything whose name or tag carries `prod` or `production` as a whole word or name segment",
+      "### User-specific",
+      "**Primary use of Claude Code**: software development (mixed personal/hobby and CloudWarriors work use, per home-directory CLAUDE.md and agent docs)",
+      "**Trusted repo**: The git repository the agent started in (/Users/chadsimon) and its configured remote(s) — currently no remotes configured and no tracked files, so no evidence this checkout is a real project repo yet",
+      "**Org-specific CLIs**: `op` (1Password, work plane), `rbw` (Bitwarden, personal plane), `gh`, `godot`, `omem`/omni-mem docker exec routing — sourced from shell history and ~/.claude/CLAUDE.md, unverified provenance for this specific repo",
+      "No \"routine under <user>/ prefix\" qualifiers found"
+    ]
+  },
   "mcpServers": {}
 }

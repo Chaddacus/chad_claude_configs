@@ -1,0 +1,4 @@
+interface:
+  display_name: "Gateway Consolidation"
+  short_description: "Consolidate 5 vendor gateways into one FastAPI service"
+  default_prompt: "Run the gateway consolidation workflow"
