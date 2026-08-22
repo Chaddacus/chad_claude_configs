@@ -100,6 +100,8 @@ Every Agent dispatch carries four fields (Anthropic's multi-agent research-syste
 3. **Tool guidance** — which tools/sources to use, which to avoid.
 4. **Task boundaries** — what is explicitly out of scope for this dispatch.
 
+Every worker return carries a handoff signal: **uphill** (unsolved unknowns remain — named) or **downhill** (all unknowns retired; pure execution). Percent-complete claims are not status. A slice still uphill after two consecutive reviews is stuck — re-shape it, don't retry harder (SPEC.md Standard 3 §6.5).
+
 Effort scaling is the hub's job, not the model's judgment: 1 agent for a simple lookup; 2–4 for comparisons or medium decomposition; wide fan-out only for read-only sweep work (audit/research). Multi-agent costs ~15x single-agent tokens — every spawn must earn it.
 
 ### Coding-team pipeline (stage compositions)

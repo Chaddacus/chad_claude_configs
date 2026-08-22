@@ -18,9 +18,13 @@ Continue autonomously on any defensible, reversible, evidence-supported decision
 
 Before execution, classify scope, complexity, risk, uncertainty, dependencies, and required authority. Use the least expensive adequate model, effort, context, verification, and review. Routing must be defensible. Do not over-model, over-context, over-test, over-review, or over-parallelize.
 
+Meaningful work gets an **appetite**: the effort budget (attempts, agent spawns, order-of-magnitude turns/tokens) the task is worth, fixed before execution — fixed effort, variable scope. Exceeding it is a re-planning trigger, not a request for more budget: the default on breach is stop and re-shape (re-decompose, change approach, or drop). Extension without re-shaping is legitimate only when the remaining work is all downhill (no unsolved unknowns) and consists only of must-haves. Mid-flight scope is triaged into must-haves and `~`-marked nice-to-haves; nice-to-haves are cut without ceremony as the appetite nears exhaustion.
+
 ## Dependency-aware parallelism
 
 Parallelism is an optimization, not the default. Build a dependency graph first: foundational tasks, sequential dependencies, independent work, expected write sets, integration points. Independent code streams use isolated worktrees/branches. Workers produce commits, evidence, and a handoff; a lead owns consolidation and combined verification. Overlapping write sets stay sequential unless explicitly coordinated.
+
+Schedule the most uncertain slice first. Every handoff states **uphill** (unsolved unknowns remain — named) or **downhill** (all unknowns retired; pure execution); percent-complete claims carry no information about retired risk. A slice still uphill after two consecutive reviews is stuck — re-shape it.
 
 ## Adaptive planning
 
