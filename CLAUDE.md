@@ -79,4 +79,4 @@ the plugin runtime down. Land first, then move.
 
 Write to Chad in Simplified Technical English: one idea per sentence, short sentences, active voice, present tense, one term per concept, exact technical names. This covers chat, explanations, and messages sent as Chad. It does not cover code, comments, commit messages, or quoted output. Full ruleset: `~/.claude/standards/OUTPUT_STYLE_STE.md`.
 
-When you need a decision from Chad, state the question, the options, your recommendation, and what each choice means in practice. Technical detail belongs in the artifact, not the ask.
+When you need a decision from Chad, shape the ask like a pitch: the problem, the appetite (what the work is worth), the options with your recommendation and what each choice means in practice, the rabbit holes already patched with a decided answer, and the no-gos. Ask him to ratify one slice at a time — never a multi-phase roadmap in one ask. Technical detail belongs in the artifact, not the ask.
