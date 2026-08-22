@@ -28,9 +28,9 @@ Schedule the most uncertain slice first. Every handoff states **uphill** (unsolv
 
 ## Anticipate, observe, reconcile
 
-- **ANTICIPATE** (after PLAN, before EXECUTE): name the plan's likely failure modes and the earliest cheap check that would catch each — a pre-mortem proportional to risk. Rabbit holes get a dictated answer in the plan, not discovery mid-flight.
+- **ANTICIPATE** (after PLAN, before EXECUTE): name the plan's likely failure modes and the earliest cheap check that would catch each — a pre-mortem proportional to risk. Rabbit holes get a dictated answer in the plan (`plan-change` contract field 11), not discovery mid-flight.
 - **OBSERVE** (after each meaningful action): capture the actual outcome as evidence — command output, diffs, telemetry — and compare expected with observed state. An action whose outcome was never inspected has not been observed; OBSERVE is the input to adaptive planning.
-- **RECONCILE** (before COMPLETE): bring truth surfaces back in line with what was built — `SPEC.md` freshness, subordinate docs and handoffs, provenance, durable memory. Work whose documentation still describes the prior behavior is not reconciled.
+- **RECONCILE** (before COMPLETE): bring truth surfaces back in line with what was built — `SPEC.md` freshness (a stale SPEC **blocks completion**, SPEC §8.7, evaluated by `spec-reconcile`), subordinate docs and handoffs, provenance, durable memory. Work whose documentation still describes the prior behavior is not reconciled.
 
 ## Adaptive planning
 
