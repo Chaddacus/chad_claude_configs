@@ -511,7 +511,6 @@
   "alwaysThinkingEnabled": true,
   "effortLevel": "high",
   "advisorModel": "opus",
-  "agent": "chad-twin",
   "tui": "fullscreen",
   "skipDangerousModePermissionPrompt": true,
   "autoCompactEnabled": true,

@@ -48,7 +48,7 @@ so a future repository's `.mcp.json` still prompts. All verified ✔ Connected a
 
 ## Related decisions of record (2026-08-22 audit)
 
-- **Unpinned main agents are deliberate** for `chad-twin`, `chad-work`, `chad-personal` (tree-bound
+- **Unpinned main agents are deliberate** for `chad-work`, `chad-personal` (tree-bound; `chad-twin` retired 2026-08-22 to `agents-archive/` — superseded by the tree agents, doctrine extracted to `standards/ORCHESTRATION_PLAYBOOK.md`)
   main-session agents inherit the session model). `chad-agent` is pinned `sonnet` — it is routinely
   *spawned* for comms tasks and an unpinned spawn drew a live R2 route-gate denial on 2026-08-20.
 - **Skills retired to `~/.claude/skills-archive/`** (archive, never delete): `zw-lead-b-status`

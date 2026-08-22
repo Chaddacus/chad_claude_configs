@@ -15,7 +15,7 @@ Modeled on AgentOps's `INV-REPLAN-CITES-EVIDENCE` (`~/automation_architecture/do
 ## When this fires
 
 A replan event is any of:
-- chad-twin's 2-attempt rule fires (worker failed twice on the same slice, supervisor pivots approach)
+- the supervising session's 2-attempt rule fires (worker failed twice on the same slice, supervisor pivots approach; see standards/ORCHESTRATION_PLAYBOOK.md)
 - A blocker forces re-decomposition (slice can't proceed without changing the plan above it)
 - A scope change forces a different solution shape (constraint discovered mid-run)
 - An approach is abandoned mid-implementation (the elegant solution failed; we're switching strategies)
@@ -63,7 +63,7 @@ rationale:
 
 Three reasons, in order:
 
-1. **Anti-amnesia.** Without this, the next chad-twin run hits the same failed approach and tries it again because the prior failure is buried in conversation context that has been compacted away. With this, an omni-mem search on the task topic surfaces the prior pivot.
+1. **Anti-amnesia.** Without this, the next supervising run hits the same failed approach and tries it again because the prior failure is buried in conversation context that has been compacted away. With this, an omni-mem search on the task topic surfaces the prior pivot.
 
 2. **Calibration over time.** Longitudinal signal: which candidate types keep getting selected and then failing, and which keep getting rejected and then succeeding? Six months of these records lets the planner agent learn which decompositions actually work for which task shapes.
 
@@ -120,7 +120,7 @@ rationale:
 
 ## Wiring
 
-- chad-twin's supervisor loop SHOULD invoke this protocol whenever the 2-attempt rule fires before re-dispatching a worker.
+- the supervisor loop (standards/ORCHESTRATION_PLAYBOOK.md) SHOULD invoke this protocol whenever the 2-attempt rule fires before re-dispatching a worker.
 - The planner agent SHOULD invoke this protocol whenever a mid-plan replan happens (constraint discovered, scope changed).
 - The worker agent SHOULD invoke this protocol whenever it abandons an in-progress implementation strategy. (Workers usually escalate to the supervisor instead, but if a worker self-pivots within its slice, the same record applies.)
 
@@ -128,7 +128,7 @@ rationale:
 
 Enforced via Stop-hook `~/.claude/bin/replan_evidence_check.py --strict`:
 
-1. **Sentinel write.** When the chad-twin 2-attempt rule fires (or any other replan trigger), the supervisor writes:
+1. **Sentinel write.** When the 2-attempt rule fires (or any other replan trigger), the supervisor writes:
    ```bash
    : > "/tmp/claude-replan-pending-${CLAUDE_SESSION_ID:-default}.json"
    ```
@@ -147,5 +147,5 @@ Promotion path: the heuristic-only (non-sentinel) fallback remains advisory beca
 
 ```bash
 docker exec omni-mem omni-mem search --workspaceId "<repo>" --query "replan <task topic>"
-docker exec omni-mem omni-mem journal_read --workspaceId "<repo>" --agentName "chad-twin" --limit 50 | grep -A 20 '"topic":"replan-'
+docker exec omni-mem omni-mem journal_read --workspaceId "<repo>" --agentName "<tree agent, e.g. chad-work>" --limit 50 | grep -A 20 '"topic":"replan-'
 ```

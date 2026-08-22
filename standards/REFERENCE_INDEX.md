@@ -16,6 +16,8 @@ behavioral; lookup material lives here). This file is pointer-only — no rules.
 - Skills, plugins, hooks, notifications: `~/.claude/skills/`, `~/.claude/plugins/`, `~/.claude/bin/`
 - MCP trust registry (Standard 8): `~/.claude/standards/MCP_TRUST_REGISTRY.md`
 - Retired skills (archived, never deleted): `~/.claude/skills-archive/`
+- Retired agents: `~/.claude/agents-archive/` (chad-twin retired 2026-08-22)
+- Orchestration playbook (supervisor mechanics, dispatch envelope, stage pipeline): `~/.claude/standards/ORCHESTRATION_PLAYBOOK.md`
 
 ## Canonical owners by concern
 

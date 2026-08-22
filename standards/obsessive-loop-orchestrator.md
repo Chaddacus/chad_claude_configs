@@ -8,7 +8,7 @@ authority_level: procedural
 # Obsessive Loop — Orchestrator/Worker Workflow v1.0
 
 The high-leverage operating model for autonomous improvement of a target repo.
-The **brain** (Opus high-effort, in the chad-twin / claude session) drives;
+The **brain** (Opus high-effort, in the orchestrating (chad-work / chad-personal / claude) session) drives;
 goose (GPT-5.5 via ACP) is the workhorse.
 
 This is **not** the legacy `obsessive_loop.py` autonomous state machine. That
@@ -16,7 +16,7 @@ script is retained for unattended overnight runs but is not the canonical flow.
 
 ## Roles
 
-- **Orchestrator** = the chad-twin LLM session. Plans, dispatches, reviews
+- **Orchestrator** = the orchestrating LLM session (tree agent or claude). Plans, dispatches, reviews
   diffs and reports, decides accept/reject/replan, commits, iterates.
   Reasoning happens in the LLM's context, not in Python.
 - **Worker** = goose, dispatched fresh per slice via `goose_dispatch.py`.

@@ -47,7 +47,6 @@ the cap.
 ## Where the cap is set
 
 - Per-agent: `tools:` and `maxTurns:` frontmatter in `~/.claude/agents/*.md`
-- chad-twin: 100
 - chad-agent: 200
 - Most specialized agents: 20-35
 

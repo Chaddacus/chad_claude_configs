@@ -9,7 +9,7 @@ Chad Simon's `~/.claude` — Claude Code runtime, agent definitions, skills, hoo
 | `CLAUDE.md` | Constitutional policy — global operating rules, autonomy model, memory workflow |
 | `POLICY_OWNERSHIP.md` | Policy ownership map across Claude/Codex homes |
 | `settings.json` | Claude Code runtime: hooks, env, permissions, statusLine, plugins |
-| `agents/` | Subagent definitions (planner, reviewer, worker, validator, chad-agent, chad-twin, etc.) |
+| `agents/` | Subagent definitions (planner, reviewer, worker, validator, chad-agent, chad-work, etc.) |
 | `commands/` | Custom slash commands (`/commit-push-pr`, `/techdebt`) |
 | `skills/` | Installed skills — each is a markdown + optional scripts bundle |
 | `bin/` | Custom scripts: hook handlers, governance runtime, auto-runtime, notification pipeline |
