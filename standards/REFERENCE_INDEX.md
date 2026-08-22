@@ -14,6 +14,8 @@ behavioral; lookup material lives here). This file is pointer-only — no rules.
 - Hook chain runner: `~/.claude/bin/hook_chain.py` (Stop / post-edit / post-bash / post-failure)
 - Managed role files: `~/.claude/agents/*.md`
 - Skills, plugins, hooks, notifications: `~/.claude/skills/`, `~/.claude/plugins/`, `~/.claude/bin/`
+- MCP trust registry (Standard 8): `~/.claude/standards/MCP_TRUST_REGISTRY.md`
+- Retired skills (archived, never deleted): `~/.claude/skills-archive/`
 
 ## Canonical owners by concern
 
