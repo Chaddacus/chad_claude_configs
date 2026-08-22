@@ -97,7 +97,8 @@
       "Bash(cat ~/.claude/kickstarter-tokens.json)"
     ],
     "ask": [
-      "mcp__ks-rapture-gateway"
+      "mcp__ks-rapture-gateway",
+      "mcp__rapture-bypass-tailscale"
     ],
     "defaultMode": "auto"
   },
