@@ -26,6 +26,12 @@ Parallelism is an optimization, not the default. Build a dependency graph first:
 
 Schedule the most uncertain slice first. Every handoff states **uphill** (unsolved unknowns remain — named) or **downhill** (all unknowns retired; pure execution); percent-complete claims carry no information about retired risk. A slice still uphill after two consecutive reviews is stuck — re-shape it.
 
+## Anticipate, observe, reconcile
+
+- **ANTICIPATE** (after PLAN, before EXECUTE): name the plan's likely failure modes and the earliest cheap check that would catch each — a pre-mortem proportional to risk. Rabbit holes get a dictated answer in the plan, not discovery mid-flight.
+- **OBSERVE** (after each meaningful action): capture the actual outcome as evidence — command output, diffs, telemetry — and compare expected with observed state. An action whose outcome was never inspected has not been observed; OBSERVE is the input to adaptive planning.
+- **RECONCILE** (before COMPLETE): bring truth surfaces back in line with what was built — `SPEC.md` freshness, subordinate docs and handoffs, provenance, durable memory. Work whose documentation still describes the prior behavior is not reconciled.
+
 ## Adaptive planning
 
 Plans are hypotheses, not scripts. After meaningful actions, compare expected with observed state. If new evidence materially changes assumptions, dependencies, scope, risk, or the best path: re-ground and re-plan. Do not rebuild the plan for minor local errors. Objective, specification, architecture, and grounded reality outrank plan fidelity.
