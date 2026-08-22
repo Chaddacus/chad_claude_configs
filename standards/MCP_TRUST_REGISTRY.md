@@ -28,17 +28,23 @@ are his acts, not the agent's.
 | omni-mem-manage | T2 | Local memory administration (work vault) |
 | devrelay | T3 (first-pass) | Fleet dispatch, review-gate, release actions — release authority governed by its own coordinator playbook + S2 clear-to-merge doctrine |
 | rapture-bypass-tailscale | **T3** | Staff-only platform administration over client tenants (Zoom Phone/Dialpad/RC). Behind the `ask` permission gate — restored 2026-08-22 (PR #15) after a server rename had silently unhooked it |
-| dev-mcp-gateway | **UNREVIEWED** | External proxy (`mcp-gateway.pscx.ai`) — the effective tool surface is whatever sits behind the proxy. Standard 8: prohibited for consequential use until Chad reviews the proxied toolset |
+| dev-mcp-gateway | **UNREVIEWED** | External proxy (`mcp-gateway.pscx.ai`) — the effective tool surface is whatever sits behind the proxy. Owner skipped the review 2026-08-22; status accepted. Remains UNREVIEWED: not for consequential work per Standard 8 |
 
-## Configured, pending approval (approval is a human act — run `claude` interactively)
+## Approved by owner 2026-08-22 (per-name via settings `enabledMcpjsonServers` — no blanket trust)
 
-| Server | Class if approved | Notes |
+Chad approved all pending servers on 2026-08-22 ("you dont need me — 1 approve, 2 approve").
+Recorded as named entries in `settings.json` `enabledMcpjsonServers`, not `enableAllProjectMcpServers`,
+so a future repository's `.mcp.json` still prompts. All verified ✔ Connected after approval.
+
+| Server | Class | Notes |
 |---|---|---|
-| omni-mem | T2 | Local memory MCP. The `mcp__omni-mem__*` allow-list entries were removed 2026-08-22 while the server is unapproved (allowed-but-unconnectable is misleading config); re-add on approval. Memory currently routes via `~/.omni-mem/bin/omem` / `docker exec` |
-| playwright | T2 | Local browser automation. Overlaps the `playwright` skill (terminal-driven); approve only if the MCP form is actually wanted |
-| wigolo | T2, secrets-adjacent | Wraps 1Password (`wigolo-op.sh`) — work-plane service account; review before approving |
+| sentinel | T2 | Approval carried to the surviving project-scope definition |
+| omni-mem | T2 | Local memory MCP. `mcp__omni-mem__*` allow-list entries restored on approval, per the documented re-add path |
+| playwright | T2 | Local browser automation (MCP form; `playwright` skill remains the terminal-driven form) |
+| wigolo | T2, secrets-adjacent | Wraps 1Password (`wigolo-op.sh`) — owner approved with the secrets note on record |
 | cloudwarriors | T1 | `@cloudwarriors-ai/mcp-docs`, read-only docs |
-| openaiDeveloperDocs | T1 | Read-only docs |
+| openaiDeveloperDocs | T1 | **Repaired 2026-08-22**: the configured npm package (`@openai/mcp-server-openai-developer-docs`) never existed on the registry (404 — dead since it was added). Replaced with OpenAI's hosted endpoint `https://developers.openai.com/mcp` in `~/.mcp.json`; connects |
+| claude-code-docs | T1 | **Added 2026-08-22** at user scope: Anthropic's hosted Claude Code docs server, `https://code.claude.com/docs/mcp` (full-text docs search, no auth) |
 
 ## Related decisions of record (2026-08-22 audit)
 

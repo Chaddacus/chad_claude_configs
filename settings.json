@@ -40,7 +40,28 @@
       "NotebookEdit",
       "Skill",
       "ScheduleWakeup",
-      "ToolSearch"
+      "ToolSearch",
+      "mcp__omni-mem__save_memory",
+      "mcp__omni-mem__save_preference",
+      "mcp__omni-mem__journal_write",
+      "mcp__omni-mem__fact_add",
+      "mcp__omni-mem__fact_query",
+      "mcp__omni-mem__fact_invalidate",
+      "mcp__omni-mem__fact_stats",
+      "mcp__omni-mem__fact_timeline",
+      "mcp__omni-mem__search",
+      "mcp__omni-mem__build_context",
+      "mcp__omni-mem__build_briefing",
+      "mcp__omni-mem__build_memory_pack",
+      "mcp__omni-mem__consolidate_memory",
+      "mcp__omni-mem__check_duplicate",
+      "mcp__omni-mem__journal_read",
+      "mcp__omni-mem__list_domains",
+      "mcp__omni-mem__list_topics",
+      "mcp__omni-mem__timeline",
+      "mcp__omni-mem__topic_graph",
+      "mcp__omni-mem__taxonomy_overview",
+      "mcp__omni-mem__provider_metrics"
     ],
     "deny": [
       "Bash(rm -rf /)",
@@ -81,6 +102,14 @@
     ],
     "defaultMode": "auto"
   },
+  "enabledMcpjsonServers": [
+    "sentinel",
+    "omni-mem",
+    "playwright",
+    "wigolo",
+    "cloudwarriors",
+    "openaiDeveloperDocs"
+  ],
   "model": "claude-opus-4-6[1m]",
   "fallbackModel": [
     "sonnet"
