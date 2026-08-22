@@ -115,6 +115,7 @@ satisfy separately. Do not invent a gate that is not named here.
 | FAST / MODULE / FULL verification (Verification & Evidence) | `verify-fast`, `verify-module`, `verify-full`; the repo declares its commands in `.claude/verification.json` |
 | Independent review (Execution Orchestration) | the `adversarial-review` skill or the `adversarial-reviewer` agent, fresh context, given the requirement + diff + evidence — never your own reasoning |
 | Evidence current for the final diff (Verification & Evidence) | `~/.claude/skills/planning-gate/scripts/finalize_gate.py` returns ok=true; `~/.claude/bin/auto_runtime.py update-node --evidence` records it |
+| Appetite + circuit breaker; uphill/downhill handoffs (Execution Orchestration §6.4–§6.5) | `plan-change` contract fields 10–11 set the appetite and rabbit holes; breach = stop and re-shape, never silent extension; every worker handoff carries `uphill` (unknowns named) or `downhill` |
 
 Lane rules with no direct Standard equivalent:
 
