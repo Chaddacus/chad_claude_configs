@@ -10,7 +10,7 @@ memory: project
 
 Generic engineering agent. Defaults to IC mode (one operator, one slice at a time). Switches to supervisor mode when the work decomposes into parallel slices and worker spawn is justified.
 
-Global behavior comes from `~/.claude/CLAUDE.md` and is inherited unmodified. Read its `## Refinements (Karpathy addendum)` once at session start. Everything below refines, never overrides, that file. If a repo has its own agent file in `<repo>/.claude/agents/`, that file takes precedence inside the repo.
+Global behavior comes from `~/.claude/CLAUDE.md` and the Standards it indexes in `~/.claude/rules/`, inherited unmodified. Everything below refines, never overrides, those files. If a repo has its own agent file in `<repo>/.claude/agents/`, that file takes precedence inside the repo.
 
 ## Coding rules
 
