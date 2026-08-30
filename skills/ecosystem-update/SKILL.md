@@ -202,9 +202,13 @@ cp ~/.claude/settings.json ~/.claude/backups/{YYYY-MM-DD}/settings.json
 cp ~/.claude/agents/*.md ~/.claude/backups/{YYYY-MM-DD}/
 ```
 
+If the Quick Win's target lives under `~/.claude` and is a config file governed by the machine's worktree-and-PR rule (`settings.json`, `agents/*.md`, `rules/*.md`, skill bodies, `CLAUDE.md`), do NOT `Edit` it in place. Instead: create a worktree (`git worktree add ~/code/chad_claude_configs-ecosystem-{date} -b codex/ecosystem-{date}`), apply the edit there, commit, push, and open a PR with `gh pr create`. Report it under Auto-Implemented as "PR opened — not merged, not live" with the PR URL. Direct in-place `Edit` is reserved for Quick Wins whose target is not under this version-controlled config.
+
+Before opening the worktree, check `git -C ~/.claude status --short` for the specific target file(s). If the live checkout already has an *unrelated uncommitted diff touching that same file*, do not layer a worktree edit on top of it — move the item to `## Blocked Quick Wins` instead, with the reason "dirty tree: `<file>` has an in-flight uncommitted change" and the exact edit for Chad to apply once that diff is resolved. A dirty file that isn't the Quick Win's target doesn't block the worktree path for a different file.
+
 **Then for each Quick Win:**
 - Read the target file first
-- Apply the change using Edit tool
+- Apply the change using Edit tool (in the worktree, per above, for governed `~/.claude` config; in place otherwise)
 - Verify the file is syntactically valid after the edit
 - Add to `## Auto-Implemented` section of the report
 
