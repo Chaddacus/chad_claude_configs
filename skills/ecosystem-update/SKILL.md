@@ -201,6 +201,7 @@ mkdir -p ~/.claude/backups/{YYYY-MM-DD}
 cp ~/.claude/settings.json ~/.claude/backups/{YYYY-MM-DD}/settings.json
 cp ~/.claude/agents/*.md ~/.claude/backups/{YYYY-MM-DD}/
 ```
+This `cp`-based backup only protects direct in-place edits (see below) — it snapshots whatever the live file currently contains, dirty or not. For a Quick Win routed through the worktree path, this snapshot is not the pre-edit state that matters: the worktree branches from the last commit, not from the live file's current (possibly uncommitted) contents, so the real "backup" is the base commit itself, already in git history. Don't rely on the `cp` snapshot to reason about or revert a worktree-routed edit.
 
 If the Quick Win's target lives under `~/.claude` and is a config file governed by the machine's worktree-and-PR rule (`settings.json`, `agents/*.md`, `rules/*.md`, skill bodies, `CLAUDE.md`), do NOT `Edit` it in place. Instead: create a worktree (`git worktree add ~/code/chad_claude_configs-ecosystem-{date} -b codex/ecosystem-{date}`), apply the edit there, commit, push, and open a PR with `gh pr create`. Report it under Auto-Implemented as "PR opened — not merged, not live" with the PR URL. Direct in-place `Edit` is reserved for Quick Wins whose target is not under this version-controlled config.
 
