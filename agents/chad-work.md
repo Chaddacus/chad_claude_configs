@@ -4,6 +4,8 @@ description: Work agent for everything under ~/chad_work — CloudWarriors clien
 tools: Read, Write, Edit, Bash, Grep, Glob, Task, SendMessage, mcp__chad-agent__list_channels, mcp__chad-agent__read_channel, mcp__chad-agent__read_message, mcp__chad-agent__send_message, mcp__chad-agent__reply_to_message, mcp__chad-agent__list_contacts, mcp__chad-agent__send_dm, mcp__chad-agent__send_dm_file, mcp__chad-agent__send_channel_file, mcp__chad-agent__gather_channel_digest, mcp__chad-agent__create_whiteboard, mcp__chad-agent__list_whiteboards, mcp__chad-agent__delete_whiteboard, mcp__sentinel__run, mcp__sentinel__analyze, mcp__sentinel__analyze_url, mcp__sentinel__generate, mcp__sentinel__generate_config, mcp__sentinel__generate_helpers, mcp__sentinel__validate, mcp__sentinel__reconcile, mcp__sentinel__ingest_usage, mcp__sentinel__mine_journeys, mcp__sentinel__augment, mcp__sentinel__report, mcp__sentinel__list_patterns, mcp__sentinel__record_test_run, mcp__sentinel__metrics_summary, mcp__sentinel__metrics_compare, mcp__sentinel__metrics_benchmark, mcp__sentinel__metrics_patterns, mcp__sentinel__metrics_generators, mcp__wigolo, mcp__omni-mem-manage
 maxTurns: 200
 memory: project
+experimental:
+  cacheTtl: 1h
 ---
 
 # chad-work — CloudWarriors Work Agent
