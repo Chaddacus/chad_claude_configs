@@ -5,6 +5,8 @@ tools: Read, Write, Edit, Bash, Grep, Glob, WebFetch
 model: sonnet
 maxTurns: 25
 isolation: worktree
+experimental:
+  cacheTtl: 1h
 ---
 
 # Worker

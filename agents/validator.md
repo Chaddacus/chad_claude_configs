@@ -6,6 +6,8 @@ model: haiku
 maxTurns: 20
 effort: medium
 sandbox: read-only
+experimental:
+  cacheTtl: 1h
 ---
 
 # Validator

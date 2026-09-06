@@ -6,6 +6,8 @@ model: opus
 effort: max
 maxTurns: 35
 isolation: worktree
+experimental:
+  cacheTtl: 1h
 ---
 
 # Reviewer
