@@ -82,10 +82,12 @@ def analyze_file(path: Path) -> Stats:
             usage = msg.get("usage") or {}
             if usage:
                 s.turns += 1
-                inp = int(usage.get("input_tokens", 0))
-                out = int(usage.get("output_tokens", 0))
-                cw = int(usage.get("cache_creation_input_tokens", 0))
-                cr = int(usage.get("cache_read_input_tokens", 0))
+                # `or 0` guards explicit nulls: in-flight transcripts can carry
+                # "cache_creation_input_tokens": null, and int(None) raises.
+                inp = int(usage.get("input_tokens") or 0)
+                out = int(usage.get("output_tokens") or 0)
+                cw = int(usage.get("cache_creation_input_tokens") or 0)
+                cr = int(usage.get("cache_read_input_tokens") or 0)
                 s.input_tokens += inp
                 s.output_tokens += out
                 s.cache_create_tokens += cw
