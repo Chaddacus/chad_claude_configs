@@ -11,6 +11,7 @@ def main():
     """Validate shared policy routing and the intended read-only Claude reviewer."""
     settings = json.loads((ROOT / "settings.json").read_text())
     assert "hooks" not in settings
+    assert settings["env"]["SLASH_COMMAND_TOOL_CHAR_BUDGET"] == "8000"
     assert settings["enabledPlugins"]["claude-engineering-foundation@claude-engineering-foundation"] is False
     assert not any((ROOT / name).exists() for name in ("rules", "commands", "hooks"))
     guides = sorted((ROOT / "guidance").glob("*.md"))
