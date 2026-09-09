@@ -1,0 +1,21 @@
+# Merge these settings into the existing config; do not replace credentials or runtime settings.
+# max_context_tokens is supported by the verified desktop runtime 0.153.4.
+[skills]
+max_context_tokens = 2000
+
+# Keep the current system versions and hide only redundant or placeholder entries.
+[[skills.config]]
+path = "~/.agents/skills/openai-docs/SKILL.md"
+enabled = false
+
+[[skills.config]]
+path = "~/.agents/skills/skill-creator/SKILL.md"
+enabled = false
+
+[[skills.config]]
+path = "~/.agents/skills/skill-installer/SKILL.md"
+enabled = false
+
+[[skills.config]]
+path = "~/.agents/skills/pokegen/SKILL.md"
+enabled = false

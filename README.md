@@ -48,3 +48,26 @@ Use the private pre-migration archive for exact local restoration, including unc
 Two small task cases compared inherited review context with fresh, concern-scoped assignments. Both preserved the expected findings; scoped reviews used 24% and 39% less total input in those observations. The second case supplied only passing fast-test evidence. These are provisional local results, not a general savings guarantee; cache warmth and timing were uncontrolled. Fresh context alone increased total input in the first screen.
 
 Bounded reviews now default to fresh context with complete handoffs and concern-based guidance selection. Essential history remains available when needed. Codex callers can use `fork_turns="none"`; other clients should use their supported fresh-session mechanism. This changes instructions, not automatic platform context injection, and does not guarantee section-only retrieval. Raw local evidence is retained under `evaluation/runs/context-review-20260909` and `evaluation/runs/context-review-holdout-20260909` in the local engineering evaluation workspace.
+
+## Compact skill discovery and exact guidance excerpts
+
+The desktop runtime (verified version 0.153.4) supports `skills.max_context_tokens`; use the 2,000-token catalog setting in `codex/context-settings.toml` by merging it into existing machine configuration. Expand home-relative paths on installation. Keep existing skill overrides, credentials, MCP registration, and unrelated settings. The four disable entries hide three older duplicate system skills and an unusable placeholder; their files remain installed, and the current system skills remain available.
+
+The older standalone CLI 0.144.1 rejects `skills.max_context_tokens` under strict configuration, so it does not receive the catalog-budget benefit. Verify support on each host before claiming it works. Restart the desktop app to rebuild context; existing conversations retain previously loaded content. See the [official configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference).
+
+The catalog budget shortens metadata, while preserving functional skill names and paths. Read a plausible skill's full file when needed. It does not remove tool definitions or platform instructions, and prompt-preview character counts are not token usage or account-cost measurements.
+
+Use `python3.11 scripts/read-guidance.py --list` to list guide headings. To prepare a review handoff, for example:
+
+```sh
+python3.11 scripts/read-guidance.py \
+  'review:Scope and evidence' \
+  'review:Findings and resolution' \
+  'coding:Contracts and valid state' \
+  'coding:Errors and changes' \
+  'engineering:Verify completion'
+```
+
+Supply the output to the reviewer with the requirements, revision, paths, and verification evidence. The reader includes exact section text, general document introductions, source paths, line ranges, and source hashes. It fails on missing or ambiguous selectors and emits no partial packet. Hashes identify the snapshot rather than certify its authority. Retrieve additional sections when needed. Install the matching script from `codex/scripts/` into `~/.codex/scripts/`; the root script serves Claude in `~/.claude/scripts/`.
+
+Run `PYTHONDONTWRITEBYTECODE=1 python3.11 -m unittest discover -s tests -v` and the existing configuration validator after edits. Tests cover boundaries, fenced headings, preserved introductions, duplicate requests, ambiguous/missing headings, and all current guide sections.
