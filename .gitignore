@@ -100,3 +100,10 @@
 **/*.swp
 **/*.bak
 **/*.log
+
+# Lean guidance and inert, previously committed legacy configuration.
+!/guidance/
+!/codex/
+!/archive/
+!/spec.md
+!/scripts/
