@@ -10,7 +10,7 @@ If `spec.md` is missing, establish the application's boundaries and inspect exis
 
 ## Retrieve focused evidence
 
-Use targeted searches and relevant file sections to answer the current question. Keep complete logs in files and return the evidence needed for the decision. If output is truncated, retrieve the missing relevant section instead of repeating the same broad dump. Expand inspection when dependencies, failures, or uncertainty require it; do not omit necessary grounding to reduce context.
+Use targeted searches and relevant file sections to answer the current question. For guidance excerpts, use `python3.11 ~/.claude/scripts/read-guidance.py --list` to discover headings, then request exact `guide:Section heading` selectors. This prints only the requested sections and their document introductions, with source paths, line ranges, and hashes. Use its output in handoffs instead of loading whole guides to extract a few paragraphs. Retrieve additional sections when their concern is reached. Keep complete logs in files and return the evidence needed for the decision. If output is truncated, retrieve the missing relevant section instead of repeating the same broad dump. Expand inspection when dependencies, failures, or uncertainty require it; do not omit necessary grounding to reduce context.
 
 ## Maintain spec.md
 

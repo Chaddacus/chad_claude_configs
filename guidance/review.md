@@ -16,6 +16,8 @@ Supply the authoritative requirements and relevant spec sections, workspace, bas
 
 Select guidance by the change's actual concerns. Name relevant guides or sections; do not ask every reviewer to reload all implementation and delivery guidance. Read necessary task evidence and guidance together where practical. Retrieve further code, requirements, or guidance when a concrete finding or uncertainty requires it; scope limits must not suppress related defects or necessary verification. Reuse already available unchanged guidance rather than rereading it merely because a new step begins.
 
+For bounded handoffs, materialize the relevant guidance with `python3.11 ~/.claude/scripts/read-guidance.py` and exact section selectors. Supply the resulting excerpts with their source paths and hashes. If current excerpts are already in context, apply them directly; do not reread complete guides merely to reconstruct the same instructions. If a source changes or a necessary section is missing, retrieve that material. Hashes identify the snapshot; they do not prove the source is correct or trustworthy.
+
 The reviewer inspects source and evidence independently. If essential context is missing, request the specific information instead of reconstructing an entire project history. A complete handoff reduces retrieval work; it does not replace verification.
 
 ## What to check

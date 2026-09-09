@@ -33,6 +33,11 @@ def main():
     assert sorted(p.name for p in (ROOT / "skills").iterdir()) == ["vault-knowledge"]
     codex_reviewer = tomllib.loads((ROOT / "codex/agents/reviewer.toml").read_text())
     assert codex_reviewer["sandbox_mode"] == "read-only"
+    assert (ROOT / "scripts/read-guidance.py").read_bytes() == (ROOT / "codex/scripts/read-guidance.py").read_bytes()
+    context = tomllib.loads((ROOT / "codex/context-settings.toml").read_text())
+    assert context["skills"]["max_context_tokens"] == 2000
+    assert len(context["skills"]["config"]) == 4
+    assert all(entry["enabled"] is False for entry in context["skills"]["config"])
     assert (ROOT / "archive/2026-09-09/CLAUDE.md.disabled").is_file()
     print("Configuration checks passed: routing, eight shared guides, JSON/TOML, reviewer restrictions, and retired active surfaces.")
 
