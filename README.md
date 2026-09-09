@@ -42,3 +42,9 @@ The adopted changes request focused evidence retrieval, reading applicable guida
 ## Recovery
 
 Use the private pre-migration archive for exact local restoration, including uncommitted configuration. The Git archive contains only previously committed files and cannot restore local-only edits or credentials. Restore chosen files deliberately, review effective settings, and start a fresh session. Do not restore an entire archive over active authentication or session state. For a shared rollback, make a normal revert commit and merge it; do not rewrite shared history.
+
+## Review context refinement
+
+Two small task cases compared inherited review context with fresh, concern-scoped assignments. Both preserved the expected findings; scoped reviews used 24% and 39% less total input in those observations. The second case supplied only passing fast-test evidence. These are provisional local results, not a general savings guarantee; cache warmth and timing were uncontrolled. Fresh context alone increased total input in the first screen.
+
+Bounded reviews now default to fresh context with complete handoffs and concern-based guidance selection. Essential history remains available when needed. Codex callers can use `fork_turns="none"`; other clients should use their supported fresh-session mechanism. This changes instructions, not automatic platform context injection, and does not guarantee section-only retrieval. Raw local evidence is retained under `evaluation/runs/context-review-20260909` and `evaluation/runs/context-review-holdout-20260909` in the local engineering evaluation workspace.

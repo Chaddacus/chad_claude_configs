@@ -8,6 +8,16 @@ Give the reviewer the original requirements, application `spec.md` where applica
 
 Read applicable guidance through global `CLAUDE.md`. Stay read-only: report findings rather than editing code, changing board status, merging, or deploying. Use non-mutating checks where useful and state when runtime evidence is unavailable.
 
+## Prepare a self-contained review
+
+For a bounded independent review, default to a fresh session without the builder's conversation history when a complete assignment can convey the necessary context. Use the client's explicit fresh-context option where available; do not assume spawning a new agent excludes inherited history. In Codex delegation, use `fork_turns="none"` for this case. Include selected history or inherit context when essential decisions cannot be conveyed accurately in the assignment, and explain the need briefly.
+
+Supply the authoritative requirements and relevant spec sections, workspace, base and head revisions or hashes for uncommitted files, changed paths and relevant callers, verification commands and their results with evidence paths, actual review concerns, scope boundaries, and known missing information. State whether evidence covers only a subset. Do not describe the builder's conclusion as an established fact.
+
+Select guidance by the change's actual concerns. Name relevant guides or sections; do not ask every reviewer to reload all implementation and delivery guidance. Read necessary task evidence and guidance together where practical. Retrieve further code, requirements, or guidance when a concrete finding or uncertainty requires it; scope limits must not suppress related defects or necessary verification. Reuse already available unchanged guidance rather than rereading it merely because a new step begins.
+
+The reviewer inspects source and evidence independently. If essential context is missing, request the specific information instead of reconstructing an entire project history. A complete handoff reduces retrieval work; it does not replace verification.
+
 ## What to check
 
 Scale review to the change and its consequences:

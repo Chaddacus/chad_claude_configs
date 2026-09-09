@@ -8,7 +8,7 @@
 
 ## Guidance by task
 
-Read each applicable guide once per working context. Reopen it when it changes or needed details are no longer available. Follow linked guidance when its concern is reached; skip unrelated guides and detailed integration guides explicitly excluded by the task. These are explicit reading instructions, not automatic imports. Project instructions provide application-specific context.
+Select guidance for the operation actually assigned, not every concern of the surrounding project. A bounded reviewer does not inherit the builder’s implementation or delivery responsibilities. Read each applicable guide once per working context. Reopen it when it changes or needed details are no longer available. Follow linked guidance when its concern is reached; skip unrelated guides and detailed integration guides explicitly excluded by the task. These are explicit reading instructions, not automatic imports. Project instructions provide application-specific context.
 
 | When working on | Read |
 | --- | --- |
