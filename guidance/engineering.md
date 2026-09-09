@@ -32,7 +32,7 @@ Describe:
 - How to configure, run, observe, debug, and verify the application, including API and MCP access.
 - Known limitations and unresolved questions.
 
-Keep the document focused on the current application. Clearly distinguish intended behavior that is not yet implemented from behavior verified in the code. Update affected sections in the same work whenever a change alters this description. Do not rewrite the spec for changes that leave its contents accurate.
+Update current-state sections in place. Move superseded execution notes to linked history instead of appending competing current-state summaries. Keep the document focused on the current application. Clearly distinguish intended behavior that is not yet implemented from behavior verified in the code. Update affected sections in the same work whenever a change alters this description. Do not rewrite the spec for changes that leave its contents accurate.
 
 Preserve accepted requirements when documenting actual behavior. Record a mismatch as a defect or unresolved decision; do not redefine success to match a broken implementation. Keep `spec.md` as the maintained application entry point and link to detailed schemas or references rather than duplicating them.
 
