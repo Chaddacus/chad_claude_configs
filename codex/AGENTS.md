@@ -12,11 +12,11 @@ Read each applicable guide once per working context. Reopen it when it changes o
 
 | When working on | Read |
 | --- | --- |
-| Application implementation, code review, or technical investigation | [Engineering and spec.md](~/.claude/guidance/engineering.md) |
-| Writing, refactoring, or reviewing code | [Code construction](~/.claude/guidance/coding.md) |
-| Application implementation or changes to structure, feature placement, or component boundaries, including their review | [Application architecture](~/.claude/guidance/architecture.md) |
-| Resource ownership, background work, startup/shutdown, or changing dependency availability, including their review | [Lifecycle and cleanup](~/.claude/guidance/lifecycle.md) |
-| Implementation, testing, parallel execution, integration, or delivery | [Development and delivery](~/.claude/guidance/development.md) |
-| Reviewing changes or arranging independent supervision | [Review standards](~/.claude/guidance/review.md) |
-| Project work | [Project tracking](~/.claude/guidance/project-tracking.md); keep the existing board current. |
-| Questions depending on prior knowledge, local setup, or a covered technical topic | [Knowledge vault](~/.claude/guidance/vault.md) |
+| Application implementation, code review, or technical investigation | [Engineering and spec.md](~/.codex/guidance/engineering.md) |
+| Writing, refactoring, or reviewing code | [Code construction](~/.codex/guidance/coding.md) |
+| Application implementation or changes to structure, feature placement, or component boundaries, including their review | [Application architecture](~/.codex/guidance/architecture.md) |
+| Resource ownership, background work, startup/shutdown, or changing dependency availability, including their review | [Lifecycle and cleanup](~/.codex/guidance/lifecycle.md) |
+| Implementation, testing, parallel execution, integration, or delivery | [Development and delivery](~/.codex/guidance/development.md) |
+| Reviewing changes or arranging independent supervision | [Review standards](~/.codex/guidance/review.md) |
+| Project work | [Project tracking](~/.codex/guidance/project-tracking.md); keep the existing board current. |
+| Questions depending on prior knowledge, local setup, or a covered technical topic | [Knowledge vault](~/.codex/guidance/vault.md) |
