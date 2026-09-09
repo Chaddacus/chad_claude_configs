@@ -6,7 +6,7 @@ Provide equivalent, straightforward engineering guidance for Claude Code and Cod
 
 The two routers provide matching working preferences and conditional access to eight guides. The principles cover maintained application specs, clean documented code, a small application spine with cohesive modules and plugins, lifecycle ownership, API and MCP interfaces, trusted development access, workflow testing, independent review, and existing project-board and knowledge-vault updates.
 
-Focused context retrieval and concise review handoffs are applied. Parallel execution is conditional on useful independent work; no single-builder rule, mandatory swarm, or custom governance hook is installed. Claude's native reviewer has only Read, Grep, and Glob tools, inherits the parent model, and examines retained execution evidence. The Codex reviewer retains its existing model and read-only sandbox configuration.
+Focused context retrieval and concise review handoffs are applied. Bounded reviews default to fresh context with self-contained assignments, explicit review concerns, and exceptions for necessary history. Guide selection follows the operation assigned rather than every responsibility of the surrounding project. Parallel execution is conditional on useful independent work; no single-builder rule, mandatory swarm, or custom governance hook is installed. Claude's native reviewer has only Read, Grep, and Glob tools, inherits the parent model, and examines retained execution evidence. The Codex reviewer retains its existing model and read-only sandbox configuration.
 
 ## Configuration and boundaries
 
@@ -19,3 +19,5 @@ This repository is configuration, not an application service, and has no new API
 Run `python3.11 scripts/validate-config.py` to check JSON, router targets, shared guidance parity, reviewer tool restrictions, and retired active surfaces. Git diff checks and independent static review apply before merge. This change does not require an application build or repeat the stopped evaluation.
 
 The final evaluation comparison and holdout were interrupted or not run at the user's direction. Adoption reflects a practical configuration decision, not a demonstrated general efficiency or quality advantage. Static verification cannot prove actual model behavior or that a previously running client reloaded its instructions. Verify loading in a fresh client session.
+
+Two small reviewer-context cases retained expected defect findings with lower total input for fresh, scoped handoffs. These provisional checks support the narrow delegation preference; they do not validate general efficiency, section-only retrieval, or changes to platform context injection. See README.md for scope and evidence locations.

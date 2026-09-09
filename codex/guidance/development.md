@@ -56,6 +56,8 @@ If a repair requires a substantial scope expansion, a consequential decision, or
 
 Proactively delegate bounded, independent work when parallel execution can improve speed or quality. Size the team to the task; small changes may be faster with one agent. Use a swarm for distinct work streams with useful parallelism, not as a mandatory ceremony.
 
+Choose conversation inheritance deliberately. For bounded independent reviews, follow the fresh-session and self-contained handoff guidance in [review.md](review.md). For other workers, pass the context needed for their assignment; do not inherit the entire conversation by default merely because delegation supports it.
+
 Before delegating, establish each assignment's output, ownership, interfaces, dependencies, acceptance criteria, and relevant context, including `spec.md`. Avoid concurrent edits to the same files; use separate ownership or isolated worktrees and deliberate integration.
 
 Isolate or namespace mutable runtime resources for concurrent tasks, including ports, databases, queues, containers, browser sessions, and test data as applicable. Verify each agent is observing its intended application instance. Track resource ownership and clean up only the task's resources; separate worktrees alone do not isolate running environments.
