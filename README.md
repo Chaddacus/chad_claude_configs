@@ -71,3 +71,9 @@ python3.11 scripts/read-guidance.py \
 Supply the output to the reviewer with the requirements, revision, paths, and verification evidence. The reader includes exact section text, general document introductions, source paths, line ranges, and source hashes. It fails on missing or ambiguous selectors and emits no partial packet. Hashes identify the snapshot rather than certify its authority. Retrieve additional sections when needed. Install the matching script from `codex/scripts/` into `~/.codex/scripts/`; the root script serves Claude in `~/.claude/scripts/`.
 
 Run `PYTHONDONTWRITEBYTECODE=1 python3.11 -m unittest discover -s tests -v` and the existing configuration validator after edits. Tests cover boundaries, fenced headings, preserved introductions, duplicate requests, ambiguous/missing headings, and all current guide sections.
+
+## Installed Claude and Codex parity
+
+Both clients use the same engineering guides, fresh and self-contained review handoffs, and exact excerpt reader. Claude's portable settings set `SLASH_COMMAND_TOOL_CHAR_BUDGET=8000` through `env`; Codex uses `skills.max_context_tokens=2000`. These are native character and token limits, respectively, not mathematically equivalent budgets or evidence of equal usage. Claude documents that its skill listing preserves names while shortening descriptions when the budget is exceeded. See [Claude skill-list budgeting](https://code.claude.com/docs/en/skills#skill-descriptions-are-cut-short).
+
+Restart both clients to rebuild already-loaded context. The settings and file parity are verified locally; the effective Claude skill-list size should be inspected in a fresh session with `/context`. A static settings check does not prove live model behavior. Preserve any unrelated machine-specific settings during installation.
