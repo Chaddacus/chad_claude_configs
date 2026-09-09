@@ -10,7 +10,15 @@ If `spec.md` is missing, establish the application's boundaries and inspect exis
 
 ## Retrieve focused evidence
 
-Use targeted searches and relevant file sections to answer the current question. For guidance excerpts, use `python3.11 ~/.claude/scripts/read-guidance.py --list` to discover headings, then request exact `guide:Section heading` selectors. This prints only the requested sections and their document introductions, with source paths, line ranges, and hashes. Use its output in handoffs instead of loading whole guides to extract a few paragraphs. Retrieve additional sections when their concern is reached. Keep complete logs in files and return the evidence needed for the decision. If output is truncated, retrieve the missing relevant section instead of repeating the same broad dump. Expand inspection when dependencies, failures, or uncertainty require it; do not omit necessary grounding to reduce context.
+Choose the question a read must answer. Search for relevant symbols, then inspect their implementations and callers. When a small set of related files is already known, read it in one bounded batch. Do not repeatedly search for paths already established or load unrelated material to fill a handoff.
+
+Return useful tool output with the status needed to interpret it. Avoid wrapping plain command output in another serialized transport object. Preserve exit status and, for running commands, the session identifier needed to continue them.
+
+For verbose checks, keep complete output in a file and return the command, tested revision or snapshot, exit status, relevant result counts, and failure details with the log path. Include the failed check, actionable error, and relevant source location; retain exception context when it explains the cause. Retrieve more of the log when needed. Do not hide failures, invent a successful summary, or replace a short useful result with a longer wrapper.
+
+If output is truncated, retrieve the missing relevant section instead of repeating the broad dump. Expand inspection when dependencies, failures, or uncertainty require it; do not omit necessary grounding to reduce context.
+
+For guidance excerpts, use `python3.11 ~/.claude/scripts/read-guidance.py --list` to discover headings, then request exact `guide:Section heading` selectors. This prints requested sections and their document introductions with source paths, line ranges, and hashes. Reuse its output rather than rereading complete guides; retrieve additional sections when their concern is reached.
 
 ## Maintain spec.md
 
